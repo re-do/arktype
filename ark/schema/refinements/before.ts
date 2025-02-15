@@ -83,7 +83,7 @@ export class BeforeNode extends BaseRange<Before.Declaration> {
 
 	impliedBasis: BaseRoot = $ark.intrinsic.Date.internal
 
-	reduceJsonSchema(): JsonSchema {
+	reduceJsonSchema(): JsonSchema.Constrainable {
 		return JsonSchema.throwUnjsonifiableError("Date instance")
 	}
 }

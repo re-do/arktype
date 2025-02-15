@@ -76,7 +76,7 @@ export class AfterNode extends BaseRange<After.Declaration> {
 
 	traverseAllows: TraverseAllows<Date> = data => data >= this.rule
 
-	reduceJsonSchema(): JsonSchema {
+	reduceJsonSchema(): JsonSchema.Constrainable {
 		return JsonSchema.throwUnjsonifiableError("Date instance")
 	}
 }

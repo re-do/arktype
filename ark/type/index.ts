@@ -6,7 +6,7 @@ export {
 	type JsonSchema
 } from "@ark/schema"
 export { Hkt, inferred } from "@ark/util"
-export type { distill } from "./attributes.ts"
+export type { distill, Out } from "./attributes.ts"
 export * from "./config.ts"
 export { Generic } from "./generic.ts"
 export {

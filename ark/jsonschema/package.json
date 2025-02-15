@@ -1,0 +1,41 @@
+{
+	"name": "@ark/jsonschema",
+	"version": "1.0.0",
+	"license": "MIT",
+	"author": {
+		"name": "TizzySaurus",
+		"email": "tizzysaurus@gmail.com",
+		"url": "https://github.com/tizzysaurus"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/arktypeio/arktype.git"
+	},
+	"type": "module",
+	"main": "./out/index.js",
+	"types": "./out/index.d.ts",
+	"exports": {
+		".": {
+			"ark-ts": "./index.ts",
+			"default": "./out/index.js"
+		},
+		"./internal/*.ts": {
+			"ark-ts": "./*.ts",
+			"default": "./out/*.js"
+		}
+	},
+	"files": [
+		"out"
+	],
+	"scripts": {
+		"build": "ts ../repo/build.ts",
+		"bench": "ts ./__tests__/comparison.bench.ts",
+		"test": "ts ../repo/testPackage.ts",
+		"tnt": "ts ../repo/testPackage.ts --skipTypes"
+	},
+	"dependencies": {
+		"arktype": "workspace:*",
+		"@ark/schema": "workspace:*",
+		"@ark/util": "workspace:*"
+	}
+}

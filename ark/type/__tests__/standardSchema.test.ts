@@ -1,6 +1,6 @@
 import { attest, contextualize } from "@ark/attest"
+import type { StandardSchemaV1 } from "@ark/schema"
 import type { promisable } from "@ark/util"
-import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { type } from "arktype"
 
 contextualize(() => {

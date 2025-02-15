@@ -3,6 +3,34 @@ import type { anyOrNever, conform } from "./generics.ts"
 import type { isDisjoint } from "./intersections.ts"
 import type { parseNonNegativeInteger } from "./numbers.ts"
 
+type DuplicateData<val = unknown> = { element: val; indices: number[] }
+
+/**
+ * Extracts duplicated elements and their indices from an array, returning them.
+ *
+ * @param arr The array to extract duplicate elements from.
+ */ export const getDuplicatesOf = <const arr extends array>(
+	arr: arr,
+	opts?: ComparisonOptions<arr[number]>
+): DuplicateData<arr[number]>[] => {
+	const isEqual = opts?.isEqual ?? ((l, r) => l === r)
+
+	const seenElements: Set<arr[number]> = new Set()
+	const duplicates: DuplicateData<arr[number]>[] = []
+
+	arr.forEach((element, indx) => {
+		if (seenElements.has(element)) {
+			const duplicatesEntryIndx = duplicates.findIndex((l, r) =>
+				isEqual(l.element, r)
+			)
+			if (duplicatesEntryIndx === -1)
+				duplicates.push({ element, indices: [indx] })
+			else duplicates[duplicatesEntryIndx].indices.push(indx)
+		} else seenElements.add(element)
+	})
+	return duplicates
+}
+
 export type pathToString<
 	segments extends string[],
 	delimiter extends string = "/"
