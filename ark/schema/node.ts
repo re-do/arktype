@@ -7,6 +7,7 @@ import {
 	isEmptyObject,
 	stringifyPath,
 	throwError,
+	throwInternalError,
 	type Dict,
 	type GuardablePredicate,
 	type JsonStructure,
@@ -27,10 +28,12 @@ import type {
 import type { BaseParseOptions } from "./parse.ts"
 import type { Morph } from "./roots/morph.ts"
 import type { BaseRoot } from "./roots/root.ts"
+import type { UnionNode } from "./roots/union.ts"
 import type { Unit } from "./roots/unit.ts"
 import type { BaseScope } from "./scope.ts"
 import type { NodeCompiler } from "./shared/compile.ts"
 import type {
+	BaseMeta,
 	BaseNodeDeclaration,
 	MetaSchema,
 	attachmentsOf
@@ -64,22 +67,49 @@ export abstract class BaseNode<
 	 * @ts-ignore allow instantiation assignment to the base type */
 	out d extends BaseNodeDeclaration = BaseNodeDeclaration
 > extends Callable<
-	(data: d["prerequisite"], ctx?: Traversal) => unknown,
+	(
+		data: d["prerequisite"],
+		ctx?: Traversal,
+		onFail?: ArkErrors.Handler | null
+	) => unknown,
 	attachmentsOf<d>
 > {
 	attachments: UnknownAttachments
 	$: BaseScope
+	onFail: ArkErrors.Handler | null
+	includesTransform: boolean
+
+	// if a predicate accepts exactly one arg, we can safely skip passing context
+	// technically, a predicate could be written like `(data, ...[ctx]) => ctx.mustBe("malicious")`
+	// that would break here, but it feels like a pathological case and is better to let people optimize
+	includesContextualPredicate: boolean
+	isCyclic: boolean
+	allowsRequiresContext: boolean
+	rootApplyStrategy:
+		| "allows"
+		| "contextual"
+		| "optimistic"
+		| "branchedOptimistic"
+	contextFreeMorph: ((data: unknown) => unknown) | undefined
+	rootApply: (data: unknown, onFail: ArkErrors.Handler | null) => unknown
+
+	referencesById: Record<string, BaseNode>
+	shallowReferences: BaseNode[]
+	flatRefs: FlatRef[]
+	flatMorphs: FlatRef<Morph.Node>[]
+	allows: (data: d["prerequisite"]) => boolean
+
+	get shallowMorphs(): array<Morph> {
+		return []
+	}
 
 	constructor(attachments: UnknownAttachments, $: BaseScope) {
 		super(
-			(data: any, pipedFromCtx?: Traversal) => {
-				if (
-					!this.includesMorph &&
-					!this.allowsRequiresContext &&
-					this.allows(data)
-				)
-					return data
-
+			(
+				data: any,
+				pipedFromCtx?: Traversal | undefined,
+				onFail: ArkErrors.Handler | null = this.onFail
+			) => {
 				if (pipedFromCtx) {
 					this.traverseApply(data, pipedFromCtx)
 					return pipedFromCtx.hasError() ?
@@ -87,14 +117,143 @@ export abstract class BaseNode<
 						:	pipedFromCtx.data
 				}
 
-				const ctx = new Traversal(data, this.$.resolvedConfig)
-				this.traverseApply(data, ctx)
-				return ctx.finalize()
+				return this.rootApply(data, onFail)
 			},
 			{ attach: attachments as never }
 		)
 		this.attachments = attachments
 		this.$ = $
+		this.onFail = this.meta.onFail ?? this.$.resolvedConfig.onFail
+
+		this.includesTransform =
+			this.hasKind("morph") ||
+			(this.hasKind("structure") && this.structuralMorph !== undefined)
+
+		// if a predicate accepts exactly one arg, we can safely skip passing context
+		// technically, a predicate could be written like `(data, ...[ctx]) => ctx.mustBe("malicious")`
+		// that would break here, but it feels like a pathological case and is better to let people optimize
+		this.includesContextualPredicate =
+			this.hasKind("predicate") && this.inner.predicate.length !== 1
+
+		this.isCyclic = this.kind === "alias"
+		this.referencesById = { [this.id]: this }
+
+		this.shallowReferences =
+			this.hasKind("structure") ?
+				[this as BaseNode, ...(this.children as never)]
+			:	this.children.reduce<BaseNode[]>(
+					(acc, child) => appendUniqueNodes(acc, child.shallowReferences),
+					[this]
+				)
+
+		const isStructural = this.isStructural()
+
+		this.flatRefs = []
+		this.flatMorphs = []
+
+		for (let i = 0; i < this.children.length; i++) {
+			this.includesTransform ||= this.children[i].includesTransform
+			this.includesContextualPredicate ||=
+				this.children[i].includesContextualPredicate
+			this.isCyclic ||= this.children[i].isCyclic
+
+			if (!isStructural) {
+				const childFlatRefs = this.children[i].flatRefs
+				for (let j = 0; j < childFlatRefs.length; j++) {
+					const childRef = childFlatRefs[j]
+					if (
+						!this.flatRefs.some(existing =>
+							flatRefsAreEqual(existing, childRef)
+						)
+					) {
+						this.flatRefs.push(childRef)
+						for (const branch of childRef.node.branches) {
+							if (branch.hasKind("morph")) {
+								this.flatMorphs.push({
+									path: childRef.path,
+									propString: childRef.propString,
+									node: branch
+								})
+							}
+						}
+					}
+				}
+			}
+
+			Object.assign(this.referencesById, this.children[i].referencesById)
+		}
+
+		this.flatRefs.sort((l, r) =>
+			l.path.length > r.path.length ? 1
+			: l.path.length < r.path.length ? -1
+			: l.propString > r.propString ? 1
+			: l.propString < r.propString ? -1
+			: l.node.expression < r.node.expression ? -1
+			: 1
+		)
+
+		this.allowsRequiresContext =
+			this.includesContextualPredicate || this.isCyclic
+		this.rootApplyStrategy =
+			!this.allowsRequiresContext && this.flatMorphs.length === 0 ?
+				this.shallowMorphs.length === 0 ? "allows"
+				: this.shallowMorphs.every(morph => morph.length === 1) ?
+					this.hasKind("union") ?
+						// multiple morphs not yet supported for optimistic compilation
+						this.branches.some(branch => branch.shallowMorphs.length > 1) ?
+							"contextual"
+						:	"branchedOptimistic"
+					: this.shallowMorphs.length > 1 ? "contextual"
+					: "optimistic"
+				:	"contextual"
+			:	"contextual"
+
+		this.rootApply = this.createRootApply()
+		this.allows =
+			this.allowsRequiresContext ?
+				data =>
+					this.traverseAllows(
+						data as never,
+						new Traversal(data, this.$.resolvedConfig)
+					)
+			:	data => (this.traverseAllows as any)(data)
+	}
+
+	protected createRootApply(): this["rootApply"] {
+		switch (this.rootApplyStrategy) {
+			case "allows":
+				return (data, onFail) => {
+					if (this.allows(data)) return data
+
+					const ctx = new Traversal(data, this.$.resolvedConfig)
+					this.traverseApply(data, ctx)
+					return ctx.finalize(onFail)
+				}
+
+			case "contextual":
+				return (data, onFail) => {
+					const ctx = new Traversal(data, this.$.resolvedConfig)
+					this.traverseApply(data, ctx)
+					return ctx.finalize(onFail)
+				}
+
+			case "optimistic":
+				this.contextFreeMorph = this.shallowMorphs[0] as never
+				return (data, onFail) => {
+					if (this.allows(data)) return this.contextFreeMorph!(data)
+
+					const ctx = new Traversal(data, this.$.resolvedConfig)
+					this.traverseApply(data, ctx)
+					return ctx.finalize(onFail)
+				}
+			case "branchedOptimistic":
+				return (this as {} as UnionNode).createBranchedOptimisticRootApply()
+			default:
+				this.rootApplyStrategy satisfies never
+				return throwInternalError(
+					`Unexpected rootApplyStrategy ${this.rootApplyStrategy}`
+				)
+		}
 	}
 
 	withMeta(
@@ -111,25 +270,6 @@ export abstract class BaseNode<
 	abstract expression: string
 	abstract compile(js: NodeCompiler): void
 
-	readonly includesMorph: boolean =
-		this.kind === "morph" ||
-		(this.hasKind("optional") && this.hasDefault()) ||
-		(this.hasKind("sequence") && this.includesDefaultable()) ||
-		(this.hasKind("structure") && this.inner.undeclared === "delete") ||
-		this.children.some(child => child.includesMorph)
-
-	readonly hasContextualPredicate: boolean =
-		// if a predicate accepts exactly one arg, we can safely skip passing context
-		(this.hasKind("predicate") && this.inner.predicate.length !== 1) ||
-		this.children.some(child => child.hasContextualPredicate)
-	readonly isCyclic: boolean =
-		this.kind === "alias" || this.children.some(child => child.isCyclic)
-	readonly allowsRequiresContext: boolean =
-		this.hasContextualPredicate || this.isCyclic
-	readonly referencesById: Record<string, BaseNode> = this.children.reduce(
-		(result, child) => Object.assign(result, child.referencesById),
-		{ [this.id]: this }
-	)
 	readonly compiledMeta: string = JSON.stringify(this.metaJson)
 
 	protected cacheGetter<name extends keyof this>(
@@ -154,62 +294,19 @@ export abstract class BaseNode<
 		return Object.values(this.referencesById)
 	}
 
-	get shallowReferences(): BaseNode[] {
-		return this.cacheGetter(
-			"shallowReferences",
-			this.hasKind("structure") ?
-				[this as BaseNode, ...(this.children as never)]
-			:	this.children.reduce<BaseNode[]>(
-					(acc, child) => appendUniqueNodes(acc, child.shallowReferences),
-					[this]
-				)
-		)
-	}
-
-	get shallowMorphs(): Morph.Node[] {
-		return this.cacheGetter(
-			"shallowMorphs",
-			this.shallowReferences
-				.filter(n => n.hasKind("morph"))
-				.sort((l, r) => (l.expression < r.expression ? -1 : 1))
-		)
-	}
-
-	// overriden by structural kinds so that only the root at each path is added
-	get flatRefs(): array<FlatRef> {
-		return this.cacheGetter(
-			"flatRefs",
-			this.children
-				.reduce<FlatRef[]>(
-					(acc, child) => appendUniqueFlatRefs(acc, child.flatRefs),
-					[]
-				)
-				.sort((l, r) =>
-					l.path.length > r.path.length ? 1
-					: l.path.length < r.path.length ? -1
-					: l.propString > r.propString ? 1
-					: l.propString < r.propString ? -1
-					: l.node.expression < r.node.expression ? -1
-					: 1
-				)
-		)
-	}
-
 	readonly precedence: number = precedenceOfKind(this.kind)
 	precompilation: string | undefined
 
-	allows = (data: d["prerequisite"]): boolean => {
-		if (this.allowsRequiresContext) {
-			return this.traverseAllows(
-				data as never,
-				new Traversal(data, this.$.resolvedConfig)
-			)
-		}
-		return (this.traverseAllows as any)(data)
-	}
+	// defined as an arrow function since it is often detached, e.g. when passing to tRPC
+	// otherwise, would run into issues with this binding
+	assert = (data: d["prerequisite"], pipedFromCtx?: Traversal): unknown =>
+		this(data, pipedFromCtx, errors => errors.throw())
 
-	traverse(data: d["prerequisite"]): ArkErrors | {} | null | undefined {
-		return this(data)
+	traverse(
+		data: d["prerequisite"],
+		pipedFromCtx?: Traversal
+	): ArkErrors | {} | null | undefined {
+		return this(data, pipedFromCtx, null)
 	}
 
 	get in(): this extends { [arkKind]: "root" } ? BaseRoot : BaseNode {
@@ -223,7 +320,7 @@ export abstract class BaseNode<
 	// Should be refactored to use transform
 	// https://github.com/arktypeio/arktype/issues/1020
 	getIo(ioKind: "in" | "out"): BaseNode {
-		if (!this.includesMorph) return this as never
+		if (!this.includesTransform) return this as never
 
 		const ioInner: Record<any, unknown> = {}
 		for (const [k, v] of this.innerEntries) {
@@ -249,7 +346,7 @@ export abstract class BaseNode<
 	}
 
 	toString(): string {
-		return this.expression
+		return `Type<${this.expression}>`
 	}
 
 	equals(r: unknown): boolean {
@@ -419,19 +516,25 @@ export abstract class BaseNode<
 
 		delete ctx.seen[this.id]
 
-		const transformedInner = mapper(
-			this.kind,
-			innerWithTransformedChildren as never,
-			ctx
-		)
+		const innerWithMeta = Object.assign(innerWithTransformedChildren, {
+			meta: this.meta
+		})
+
+		const transformedInner = mapper(this.kind, innerWithMeta, ctx)
 
 		if (transformedInner === null) return null
 
 		if (isNode(transformedInner))
 			return (transformedNode = transformedInner as never)
 
+		const transformedKeys = Object.keys(transformedInner)
+
+		const hasNoTypedKeys =
+			transformedKeys.length === 0 ||
+			(transformedKeys.length === 1 && transformedKeys[0] === "meta")
+
 		if (
-			isEmptyObject(transformedInner) &&
+			hasNoTypedKeys &&
 			// if inner was previously an empty object (e.g. unknown) ensure it is not pruned
 			!isEmptyObject(this.inner)
 		)
@@ -461,10 +564,14 @@ export abstract class BaseNode<
 	}
 
 	configureShallowDescendants(meta: MetaSchema): this {
+		const newMeta = typeof meta === "string" ? { description: meta } : meta
 		return this.$.finalize(
-			this.transform((kind, inner) => ({ ...inner, meta }), {
-				shouldTransform: node => node.kind !== "structure"
-			}) as never
+			this.transform(
+				(kind, inner) => ({ ...inner, meta: { ...inner.meta, ...newMeta } }),
+				{
+					shouldTransform: node => node.kind !== "structure"
+				}
+			) as never
 		)
 	}
 }
@@ -533,6 +640,6 @@ export interface DeepNodeTransformContext extends DeepNodeTransformOptions {
 
 export type DeepNodeTransformation = <kind extends NodeKind>(
 	kind: kind,
-	inner: Inner<kind>,
+	innerWithMeta: Inner<kind> & { meta: BaseMeta },
 	ctx: DeepNodeTransformContext
 ) => NormalizedSchema<kind> | null

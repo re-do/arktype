@@ -129,4 +129,28 @@ contextualize(() => {
 			})
 		).throws(writeInvalidSpreadTypeMessage("Date"))
 	})
+
+	it("autocompletes shallow string", () => {
+		attest(() =>
+			type({
+				// @ts-expect-error
+				"...": "objec"
+			})
+		).completions({
+			objec: ["object"]
+		})
+	})
+
+	it("autocompletes nested strings", () => {
+		attest(() =>
+			type({
+				"...": {
+					// @ts-expect-error
+					inner: "boo"
+				}
+			})
+		).completions({
+			boo: ["boolean"]
+		})
+	})
 })

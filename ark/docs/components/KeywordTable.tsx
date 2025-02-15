@@ -15,8 +15,6 @@ const tableNames = [
 	"generic"
 ] as const
 
-type TableName = (typeof tableNames)[number]
-
 const tableRowsByName = flatMorph(tableNames, (i, name) => [
 	name,
 	[] as JSX.Element[]
@@ -52,27 +50,34 @@ entriesOf(ark.internal.resolutions)
 		)
 	})
 
-export type KeywordTableProps = {
-	name: TableName
+type KeywordTableProps = {
 	rows: JSX.Element[]
 }
 
-export const KeywordTable = ({ name, rows }: KeywordTableProps) => (
-	<>
-		<h2>{name}</h2>
-		<table>
-			<thead>
-				<tr>
-					<th className="font-bold">Alias</th>
-					<th className="font-bold">Description</th>
-				</tr>
-			</thead>
-			<tbody>{...rows}</tbody>
-		</table>
-	</>
+const KeywordTable = ({ rows }: KeywordTableProps) => (
+	<table>
+		<thead>
+			<tr>
+				<th className="font-bold">Alias</th>
+				<th className="font-bold">Description</th>
+			</tr>
+		</thead>
+		<tbody>{...rows}</tbody>
+	</table>
 )
+
+const KeywordTables = flatMorph(tableNames, (i, name) => [
+	name,
+	() => <KeywordTable rows={tableRowsByName[name]} />
+])
+
+export const StringKeywordTable = KeywordTables.string
+
+export const NumberKeywordTable = KeywordTables.number
 
 export const AllKeywordTables = () =>
 	tableNames.map(name => (
-		<KeywordTable name={name} rows={tableRowsByName[name]} />
+		<>
+			<h2>{name}</h2> <KeywordTable rows={tableRowsByName[name]} />
+		</>
 	))

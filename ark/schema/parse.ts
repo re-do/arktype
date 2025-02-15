@@ -199,19 +199,34 @@ export const parseNode = (ctx: NodeParseContext): BaseNode => {
 		}
 	}
 
-	const node = createNode(ctx.id, ctx.kind, inner, meta, ctx.$)
+	const node = createNode({
+		id: ctx.id,
+		kind: ctx.kind,
+		inner,
+		meta,
+		$: ctx.$
+	})
 
 	return node
 }
 
-export const createNode = (
-	id: NodeId,
-	kind: NodeKind,
-	inner: dict,
-	meta: BaseMeta,
-	$: BaseScope,
+export type CreateNodeInput = {
+	id: NodeId
+	kind: NodeKind
+	inner: dict
+	meta: BaseMeta
+	$: BaseScope
 	ignoreCache?: true
-): BaseNode => {
+}
+
+export const createNode = ({
+	id,
+	kind,
+	inner,
+	meta,
+	$,
+	ignoreCache
+}: CreateNodeInput): BaseNode => {
 	const impl = nodeImplementationsByKind[kind]
 	const innerEntries = entriesOf(inner)
 	const children: BaseNode[] = []
@@ -289,7 +304,14 @@ export const withId = <node extends BaseNode>(node: node, id: NodeId): node => {
 	if (isNode(nodesByRegisteredId[id]))
 		throwInternalError(`Unexpected attempt to overwrite node id ${id}`)
 	// have to ignore cache to force creation of new potentially cyclic id
-	return createNode(id, node.kind, node.inner, node.meta, node.$, true) as never
+	return createNode({
+		id,
+		kind: node.kind,
+		inner: node.inner,
+		meta: node.meta,
+		$: node.$,
+		ignoreCache: true
+	}) as never
 }
 
 export const withMeta = <node extends BaseNode>(
@@ -299,13 +321,13 @@ export const withMeta = <node extends BaseNode>(
 ): node => {
 	if (id && isNode(nodesByRegisteredId[id]))
 		throwInternalError(`Unexpected attempt to overwrite node id ${id}`)
-	return createNode(
-		id ?? registerNodeId(meta.alias ?? node.kind),
-		node.kind,
-		node.inner,
+	return createNode({
+		id: id ?? registerNodeId(meta.alias ?? node.kind),
+		kind: node.kind,
+		inner: node.inner,
 		meta,
-		node.$
-	) as never
+		$: node.$
+	}) as never
 }
 
 const possiblyCollapse = <allowPrimitive extends boolean>(

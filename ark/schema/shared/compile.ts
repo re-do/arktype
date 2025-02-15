@@ -7,7 +7,6 @@ import {
 } from "@ark/util"
 import type { BaseNode } from "../node.ts"
 import type { NodeId } from "../parse.ts"
-import type { Discriminant } from "../roots/union.ts"
 import { registeredReference } from "./registry.ts"
 import type { TraversalKind } from "./traversal.ts"
 
@@ -155,14 +154,21 @@ export interface ReferenceOptions {
 	bind?: string
 }
 
-export class NodeCompiler extends CompiledFunction<["data", "ctx"]> {
-	path: string[] = []
-	discriminants: Discriminant[] = []
-	traversalKind: TraversalKind
+export declare namespace NodeCompiler {
+	export interface Context {
+		kind: TraversalKind
+		optimistic?: true
+	}
+}
 
-	constructor(traversalKind: TraversalKind) {
+export class NodeCompiler extends CompiledFunction<["data", "ctx"]> {
+	traversalKind: TraversalKind
+	optimistic: boolean
+
+	constructor(ctx: NodeCompiler.Context) {
 		super("data", "ctx")
-		this.traversalKind = traversalKind
+		this.traversalKind = ctx.kind
+		this.optimistic = ctx.optimistic === true
 	}
 
 	invoke(node: BaseNode | NodeId, opts?: InvokeOptions): string {

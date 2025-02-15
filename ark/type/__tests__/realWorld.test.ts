@@ -1,5 +1,9 @@
 import { attest, contextualize } from "@ark/attest"
-import { registeredReference, type ArkErrors } from "@ark/schema"
+import {
+	registeredReference,
+	type ArkErrors,
+	type StandardSchemaV1
+} from "@ark/schema"
 import { scope, type, type Module } from "arktype"
 import type { Out, To } from "arktype/internal/attributes.ts"
 
@@ -1080,7 +1084,7 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 				a: "true"
 			}
 		})
-		attest(unmorphed.internal.includesMorph).equals(false)
+		attest(unmorphed.internal.includesTransform).equals(false)
 	})
 
 	it("morph includesMorph", () => {
@@ -1088,7 +1092,7 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 			prop: ["string", "=>", s => s.length]
 		})
 
-		attest(t.internal.includesMorph).equals(true)
+		attest(t.internal.includesTransform).equals(true)
 	})
 
 	it("default prop includesMorph", () => {
@@ -1096,7 +1100,7 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 			prop: "number = 5"
 		})
 
-		attest(t.internal.includesMorph).equals(true)
+		attest(t.internal.includesTransform).equals(true)
 	})
 
 	it("default tuple includesMorph", () => {
@@ -1104,7 +1108,7 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 			tuple: ["number = 5"]
 		})
 
-		attest(t.internal.includesMorph).equals(true)
+		attest(t.internal.includesTransform).equals(true)
 	})
 
 	it("onUndeclaredKey delete includesMorph", () => {
@@ -1114,7 +1118,7 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 				foo: "string"
 			}
 		})
-		attest(t.internal.includesMorph).equals(true)
+		attest(t.internal.includesTransform).equals(true)
 	})
 
 	it("distill doesn't treat functions returning any/never as morphs", () => {
@@ -1142,7 +1146,7 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 		attest(t.inferIn).type.toString.snap("{ any: unknown; never: unknown }")
 	})
 
-	// https://github.com/arktypeio/arktype/issues/1263
+	// https://github.com/arktypeio/arktype/issues/1274
 	it("fail on non-discriminable union of objects with onUndeclaredKey: delete", () => {
 		const point2d = type({
 			x: "number",
@@ -1157,11 +1161,10 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 			"+": "delete"
 		})
 
-		const t = point2d.or(point3d)
-
-		attest(t.expression).snap(
-			"{ x: number, y: number, + (undeclared): delete }"
-		)
+		attest(() => point2d.or(point3d)).throws
+			.snap(`ParseError: An unordered union of a type including a morph and a type with overlapping input is indeterminate:
+Left: { x: number, y: number, z: number, + (undeclared): delete }
+Right: { x: number, y: number, + (undeclared): delete }`)
 	})
 
 	// https://github.com/arktypeio/arktype/issues/1266
@@ -1225,5 +1228,24 @@ nospace must be matched by ^\\S*$ (was "One space")`)
 		types.ModelD.assert({ times: { age: 7.3 }, version: 2 })
 		types.ModelE.assert({ time: { value: 0.0 }, version: 2 })
 		types.ModelF.assert({ times: { values: [0.0] }, version: 2 })
+	})
+
+	it("can nested type call from standard schema generic", () => {
+		function fn<
+			T extends {
+				schema: StandardSchemaV1
+			}
+		>(_: T) {
+			return {} as StandardSchemaV1.InferOutput<T["schema"]>
+		}
+
+		// was inferred as unknown before NoInfer was refactored to conditionals
+		const arkRes = fn({
+			schema: type({
+				name: "string"
+			})
+		})
+
+		attest<{ name: string }>(arkRes)
 	})
 })

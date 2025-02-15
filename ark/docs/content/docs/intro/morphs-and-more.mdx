@@ -35,7 +35,7 @@ Despite what `JSON.parse` might have you believe, throwing exceptions and return
 
 If you do happen to find yourself at the mercy of an unsafe API, you might consider wrapping your function body in a `try...catch`.
 
-Luckily, there is a built-in API for wrapping `pipe`d functions you don't trust:
+Luckily, there is a builtin API for wrapping `pipe`d functions you don't trust:
 
 ```ts
 const parseJson = type("string").pipe.try((s): object => JSON.parse(s))
@@ -69,7 +69,7 @@ if (!(out instanceof type.errors)) {
 }
 ```
 
-At this point, our implementation is starting to look pretty clean, but in many cases like this one, we can skip straight to the punch line with one of ArkType's many built-in aliases for validation and parsing, `string.json.parse`:
+At this point, our implementation is starting to look pretty clean, but in many cases like this one, we can skip straight to the punch line with one of ArkType's many builtin aliases for validation and parsing, `string.json.parse`:
 
 ```ts
 interface RuntimeErrors extends type.errors {

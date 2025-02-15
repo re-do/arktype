@@ -240,7 +240,7 @@ type addDefaultToMorph<t extends InferredMorph, v> =
 type normalizeMorphDistribution<
 	t,
 	undistributedIn = t extends InferredMorph<infer i> ? i : never,
-	undistributedOut extends Out = [t] extends [InferredMorph<any, infer o>] ?
+	undistributedOut extends Out = t extends InferredMorph<any, infer o> ?
 		[o] extends [To<infer unwrappedOut>] ?
 			To<unwrappedOut>
 		:	o
@@ -257,7 +257,10 @@ type normalizeMorphDistribution<
 				(In: undistributedIn) => undistributedOut
 			:	t
 	  :	never)
-	| Exclude<t, InferredMorph>
+	| Exclude<t, InferredMorph> extends infer _ ?
+		// needed to avoid normalizeMorphDistribution or similar showing up in finalized type
+		_
+	:	never
 
 export type defaultFor<t = unknown> =
 	| (Primitive extends t ? Primitive

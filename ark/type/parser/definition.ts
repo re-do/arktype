@@ -64,7 +64,7 @@ export const parseInnerDefinition = (
 			// resolutions like "this" or generic args
 			return parseString(def, ctx)
 		}
-		const scopeCache = (parseCache[ctx.$.id] ??= {})
+		const scopeCache = (parseCache[ctx.$.name] ??= {})
 		return (scopeCache[def] ??= parseString(def, ctx))
 	}
 	return hasDomain(def, "object") ?

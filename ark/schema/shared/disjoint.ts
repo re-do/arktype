@@ -94,7 +94,7 @@ export class Disjoint extends Array<DisjointEntry> {
 		})) as Disjoint
 	}
 
-	withPrefixKey(key: string | symbol, kind: Prop.Kind): Disjoint {
+	withPrefixKey(key: PropertyKey, kind: Prop.Kind): Disjoint {
 		return this.map(entry => ({
 			...entry,
 			path: [key, ...entry.path],

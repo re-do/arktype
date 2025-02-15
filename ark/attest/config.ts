@@ -16,6 +16,8 @@ import {
 
 export type TsVersionAliases = autocomplete<"*"> | string[]
 
+export type BenchErrorConfig = "runtime" | "types" | boolean
+
 type BaseAttestConfig = {
 	tsconfig: string | null | undefined
 	compilerOptions: ts.CompilerOptions
@@ -38,7 +40,7 @@ type BaseAttestConfig = {
 	skipInlineInstantiations: boolean
 	attestAliases: string[]
 	benchPercentThreshold: number
-	benchErrorOnThresholdExceeded: boolean
+	benchErrorOnThresholdExceeded: BenchErrorConfig
 	filter: string | undefined
 	testDeclarationAliases: string[]
 	formatCmd: string

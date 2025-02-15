@@ -2,6 +2,6 @@ packages:
   - "ark/*"
 
 catalog:
-  typescript: 5.7.2
+  typescript: 5.8.0-beta
   "@ark/attest-ts-min": npm:typescript@5.1.6
   "@ark/attest-ts-next": npm:typescript@next

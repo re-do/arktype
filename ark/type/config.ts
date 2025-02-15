@@ -1,16 +1,32 @@
-import type { ArkSchemaRegistry } from "@ark/schema"
+import type { arkKind } from "@ark/schema"
 import type { Ark } from "./keywords/keywords.ts"
-import type { exportScope } from "./module.ts"
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports
-export {
-	configure,
-	type ArkConfig,
-	type ArkSchemaRegistry
-} from "@ark/schema/config"
+import { configureSchema, type ArkSchemaConfig } from "@ark/schema/config"
+import type { anyOrNever } from "@ark/util"
 
-export interface ArkTypeRegistryContents extends ArkSchemaRegistry {
-	ambient: exportScope<Ark>
+export type TypeMeta = Omit<ArkEnv.meta, "onFail">
+
+export type TypeMetaInput = string | TypeMeta
+
+export type KeywordConfig = {
+	[k in keyof Ark.flat as parseConfigurableFlatAlias<
+		k,
+		Ark.flat[k]
+	>]?: TypeMetaInput
 }
+
+type parseConfigurableFlatAlias<k extends string, v> =
+	[v] extends [anyOrNever] ? k
+	: v extends { [arkKind]: "generic" | "module" } ? never
+	: k extends `${infer prefix}.root` ? prefix
+	: k
+
+export interface ArkConfig extends ArkSchemaConfig {
+	keywords?: KeywordConfig
+}
+
+export const configure: <config extends ArkConfig>(config: config) => config =
+	configureSchema as never
 
 declare global {
 	export interface ArkEnv {

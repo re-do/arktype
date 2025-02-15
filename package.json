@@ -1,6 +1,6 @@
 {
 	"name": "ark",
-	"description": "TypeScript's 1:1 validator, optimized from editor to runtime",
+	"description": "Optimized runtime validation for TypeScript syntax",
 	"license": "MIT",
 	"funding": "https://github.com/sponsors/arktypeio",
 	"author": {
@@ -17,7 +17,7 @@
 	"scripts": {
 		"prChecks": "pnpm lint && pnpm buildRepo && pnpm testRepoWithVersionsAndBenches",
 		"attest": "ts ./ark/attest/cli/cli.ts",
-		"build": "pnpm -r --filter !'@ark/docs' build",
+		"build": "pnpm -r --filter !@ark/docs build",
 		"buildRepo": "pnpm rmBuild && pnpm build && pnpm buildDocs",
 		"buildDocs": "pnpm -r --filter '@ark/docs' build",
 		"buildCjs": "ARKTYPE_CJS=1 pnpm -r build",
@@ -25,17 +25,19 @@
 		"ts": "node ./ark/repo/ts.js",
 		"testRepoWithVersionsAndBenches": "pnpm typecheckRepo && pnpm testRepo && pnpm bench && pnpm testTsVersions",
 		"test": "pnpm testTyped --skipTypes",
-		"testTyped": "mocha --exclude 'ark/attest/**/*.test.*'",
+		"testTyped": "mocha --exclude ark/attest/**/*.test.*",
 		"typecheckRepo": "pnpm tsc",
-		"testRepo": "pnpm test && pnpm testV8 && pnpm -r --filter 'arktype' testIngration && pnpm -r --filter '@ark/attest' test",
+		"testRepo": "pnpm test && pnpm testV8 && pnpm -r --filter arktype testIntegration && pnpm -r --filter @ark/attest test",
 		"testV8": "node --allow-natives-syntax ./ark/repo/testV8.js",
 		"testTsVersions": "pnpm testTyped --tsconfig null --tsVersions '*' --compilerOptions '{ \"module\": \"NodeNext\", \"moduleResolution\": \"NodeNext\", \"strictNullChecks\": true, \"exactOptionalPropertyTypes\": true }'",
-		"bench": "pnpm benchOperand && pnpm benchOperator && pnpm benchObject && pnpm benchCyclic",
+		"bench": " ATTEST_benchErrorOnThresholdExceeded='\"types\"' pnpm benchOperand && pnpm benchOperator && pnpm benchObject && pnpm benchMatch && pnpm benchCyclic",
 		"benchUp": "ATTEST_updateSnapshots=1 pnpm bench",
 		"benchOperand": "ts ./ark/type/__tests__/operand.bench.ts",
 		"benchOperator": "ts ./ark/type/__tests__/operator.bench.ts",
 		"benchObject": "ts ./ark/type/__tests__/object.bench.ts",
+		"benchMatch": "ts ./ark/type/__tests__/match.bench.ts",
 		"benchCyclic": "ts ./ark/type/__tests__/cyclic.bench.ts",
+		"benchRuntime": "ts ./ark/type/__tests__/runtime.bench.ts",
 		"scratch": "ts ./ark/repo/scratch.ts",
 		"lint": "pnpm checkPrettier && pnpm checkEslint",
 		"checkPrettier": "prettier --check .",
@@ -54,21 +56,21 @@
 		"@ark/fs": "workspace:*",
 		"@ark/repo": "workspace:*",
 		"@ark/util": "workspace:*",
-		"@eslint/js": "9.18.0",
-		"@standard-schema/spec": "1.0.0-rc.0",
+		"@eslint/js": "9.19.0",
+		"@standard-schema/spec": "1.0.0",
 		"@types/mocha": "10.0.10",
-		"@types/node": "22.10.10",
+		"@types/node": "22.12.0",
 		"c8": "10.1.3",
-		"eslint": "9.18.0",
+		"eslint": "9.19.0",
 		"eslint-plugin-import": "2.31.0",
 		"eslint-plugin-only-warn": "1.1.0",
 		"eslint-plugin-prefer-arrow-functions": "3.6.2",
-		"knip": "5.43.2",
+		"knip": "5.43.6",
 		"mocha": "11.1.0",
 		"prettier": "3.4.2",
 		"tsx": "4.19.2",
 		"typescript": "catalog:",
-		"typescript-eslint": "8.21.0"
+		"typescript-eslint": "8.22.0"
 	},
 	"mocha": {
 		"//": "IF YOU UPDATE THE MOCHA CONFIG HERE, PLEASE ALSO UPDATE ark/repo/mocha.jsonc AND .vscode/settings.json",
@@ -100,12 +102,5 @@
 		"experimentalTernaries": true,
 		"arrowParens": "avoid"
 	},
-	"pnpm": {
-		"peerDependencyRules": {
-			"allowedVersions": {
-				"eslint": "*"
-			}
-		}
-	},
-	"packageManager": "pnpm@9.14.4"
+	"packageManager": "pnpm@10.2.0"
 }

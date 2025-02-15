@@ -4,7 +4,8 @@
 		"allowImportingTsExtensions": true,
 		"rewriteRelativeImportExtensions": true,
 		"customConditions": ["ark-ts"],
-		"types": ["mocha", "node"]
+		"types": ["mocha", "node"],
+		"erasableSyntaxOnly": true
 		// "noErrorTruncation": true
 	},
 	"exclude": ["**/out", "**/node_modules", "./ark/docs"]

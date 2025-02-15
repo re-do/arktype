@@ -43,7 +43,7 @@ import {
 } from "../shared/traversal.ts"
 import {
 	assertDefaultValueAssignability,
-	computeDefaultValueMorphs
+	computeDefaultValueMorph
 } from "./optional.ts"
 import { writeDefaultIntersectionMessage } from "./prop.ts"
 
@@ -300,17 +300,59 @@ export class SequenceNode extends BaseConstraint<Sequence.Declaration> {
 	defaultablesLength: number = this.defaultables?.length ?? 0
 	optionalsLength: number = this.optionals?.length ?? 0
 	postfixLength: number = this.postfix?.length ?? 0
+	defaultablesAndOptionals: BaseRoot[] = []
 	prevariadic: array<PrevariadicSequenceElement> = this.tuple.filter(
-		el =>
-			el.kind === "prefix" ||
-			el.kind === "defaultables" ||
-			el.kind === "optionals"
+		(el): el is PrevariadicSequenceElement => {
+			if (el.kind === "defaultables" || el.kind === "optionals") {
+				// populate defaultablesAndOptionals while filtering prevariadic
+				this.defaultablesAndOptionals.push(el.node)
+				return true
+			}
+
+			return el.kind === "prefix"
+		}
 	)
 
 	variadicOrPostfix: array<BaseRoot> = conflatenate(
 		this.variadic && [this.variadic],
 		this.postfix
 	)
+
+	// have to wait until prevariadic and variadicOrPostfix are set to calculate
+	flatRefs: FlatRef[] = this.addFlatRefs()
+
+	protected addFlatRefs(): FlatRef[] {
+		appendUniqueFlatRefs(
+			this.flatRefs,
+			this.prevariadic.flatMap((element, i) =>
+				append(
+					element.node.flatRefs.map(ref =>
+						flatRef([`${i}`, ...ref.path], ref.node)
+					),
+					flatRef([`${i}`], element.node)
+				)
+			)
+		)
+
+		appendUniqueFlatRefs(
+			this.flatRefs,
+			this.variadicOrPostfix.flatMap(element =>
+				// a postfix index can't be directly represented as a type
+				// key, so we just use the same matcher for variadic
+				append(
+					element.flatRefs.map(ref =>
+						flatRef(
+							[$ark.intrinsic.nonNegativeIntegerString.internal, ...ref.path],
+							ref.node
+						)
+					),
+					flatRef([$ark.intrinsic.nonNegativeIntegerString.internal], element)
+				)
+			)
+		)
+
+		return this.flatRefs
+	}
 
 	isVariadicOnly: boolean = this.prevariadic.length + this.postfixLength === 0
 	minVariadicLength: number = this.inner.minVariadicLength ?? 0
@@ -333,17 +375,12 @@ export class SequenceNode extends BaseConstraint<Sequence.Declaration> {
 		: this.maxLengthNode ? [this.maxLengthNode]
 		: []
 
-	defaultValueMorphs: Morph[][] =
-		this.defaultables?.map(([node, defaultValue], i) =>
-			computeDefaultValueMorphs(this.prefixLength + i, node, defaultValue)
-		) ?? []
+	defaultValueMorphs: Morph[] = getDefaultableMorphs(this)
 
-	defaultValueMorphsReference = registeredReference(this.defaultValueMorphs)
-
-	includesDefaultable(): boolean {
-		// this is called before initialization so must not reference node properties
-		return this.inner.defaultables !== undefined
-	}
+	defaultValueMorphsReference =
+		this.defaultValueMorphs.length ?
+			registeredReference(this.defaultValueMorphs)
+		:	undefined
 
 	protected elementAtIndex(data: array, index: number): SequenceElement {
 		if (index < this.prevariadic.length) return this.tuple[index]
@@ -379,44 +416,6 @@ export class SequenceNode extends BaseConstraint<Sequence.Declaration> {
 				ctx
 			)
 		}
-
-		for (; i < this.prefixLength + this.defaultablesLength; i++)
-			ctx.queueMorphs(this.defaultValueMorphs[i - this.prefixLength])
-	}
-
-	override get flatRefs(): FlatRef[] {
-		const refs: FlatRef[] = []
-
-		appendUniqueFlatRefs(
-			refs,
-			this.prevariadic.flatMap((element, i) =>
-				append(
-					element.node.flatRefs.map(ref =>
-						flatRef([`${i}`, ...ref.path], ref.node)
-					),
-					flatRef([`${i}`], element.node)
-				)
-			)
-		)
-
-		appendUniqueFlatRefs(
-			refs,
-			this.variadicOrPostfix.flatMap(element =>
-				// a postfix index can't be directly represented as a type
-				// key, so we just use the same matcher for variadic
-				append(
-					element.flatRefs.map(ref =>
-						flatRef(
-							[$ark.intrinsic.nonNegativeIntegerString.internal, ...ref.path],
-							ref.node
-						)
-					),
-					flatRef([$ark.intrinsic.nonNegativeIntegerString.internal], element)
-				)
-			)
-		)
-
-		return refs
 	}
 
 	get element(): BaseRoot {
@@ -429,18 +428,8 @@ export class SequenceNode extends BaseConstraint<Sequence.Declaration> {
 			js.traverseKey(`${i}`, `data[${i}]`, node)
 		)
 
-		this.defaultables?.forEach((node, i) => {
+		this.defaultablesAndOptionals.forEach((node, i) => {
 			const dataIndex = `${i + this.prefixLength}`
-			js.if(`${dataIndex} >= ${js.data}.length`, () =>
-				js.traversalKind === "Allows" ?
-					js.return(true)
-				:	js.return(`ctx.queueMorphs(${this.defaultValueMorphsReference}[${i}])`)
-			)
-			js.traverseKey(dataIndex, `data[${dataIndex}]`, node[0])
-		})
-
-		this.optionals?.forEach((node, i) => {
-			const dataIndex = `${i + this.prefixLength + this.defaultablesLength}`
 			js.if(`${dataIndex} >= ${js.data}.length`, () =>
 				js.traversalKind === "Allows" ? js.return(true) : js.return()
 			)
@@ -513,6 +502,27 @@ export class SequenceNode extends BaseConstraint<Sequence.Declaration> {
 
 		return schema
 	}
+}
+
+const defaultableMorphsCache: Record<string, Morph[] | undefined> = {}
+
+const getDefaultableMorphs = (node: Sequence.Node): Morph[] => {
+	if (!node.defaultables) return []
+
+	const morphs: Morph[] = []
+	let cacheKey = "["
+
+	const lastDefaultableIndex = node.prefixLength + node.defaultablesLength - 1
+
+	for (let i = node.prefixLength; i <= lastDefaultableIndex; i++) {
+		const [elementNode, defaultValue] = node.defaultables[i - node.prefixLength]
+		morphs.push(computeDefaultValueMorph(i, elementNode, defaultValue))
+		cacheKey += `${i}: ${elementNode.id} = ${defaultValueSerializer(defaultValue)}, `
+	}
+
+	cacheKey += "]"
+
+	return (defaultableMorphsCache[cacheKey] ??= morphs)
 }
 
 export const Sequence = {
@@ -659,7 +669,7 @@ const _intersectSequences = (
 				...result.withPrefixKey(
 					// ideally we could handle disjoint paths more precisely here,
 					// but not trivial to serialize postfix elements as keys
-					kind === "prefix" ? `${s.result.length}` : `-${lTail.length + 1}`,
+					kind === "prefix" ? s.result.length : `-${lTail.length + 1}`,
 					"required"
 				)
 			)

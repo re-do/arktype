@@ -34,22 +34,27 @@ export const integer = rootSchema({
 	divisor: 1
 })
 
-export const number: number.module = Scope.module({
-	root: intrinsic.number,
-	integer,
-	epoch,
-	safe: rootSchema({
-		domain: {
-			domain: "number",
-			numberAllowsNaN: false
-		},
-		min: Number.MIN_SAFE_INTEGER,
-		max: Number.MAX_SAFE_INTEGER
-	}),
-	NaN: ["===", Number.NaN],
-	Infinity: ["===", Number.POSITIVE_INFINITY],
-	NegativeInfinity: ["===", Number.NEGATIVE_INFINITY]
-})
+export const number: number.module = Scope.module(
+	{
+		root: intrinsic.number,
+		integer,
+		epoch,
+		safe: rootSchema({
+			domain: {
+				domain: "number",
+				numberAllowsNaN: false
+			},
+			min: Number.MIN_SAFE_INTEGER,
+			max: Number.MAX_SAFE_INTEGER
+		}),
+		NaN: ["===", Number.NaN],
+		Infinity: ["===", Number.POSITIVE_INFINITY],
+		NegativeInfinity: ["===", Number.NEGATIVE_INFINITY]
+	},
+	{
+		name: "number"
+	}
+)
 
 export declare namespace number {
 	export type module = Module<submodule>

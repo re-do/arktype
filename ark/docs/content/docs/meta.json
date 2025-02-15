@@ -5,6 +5,7 @@
 		"objects",
 		"keywords",
 		"expressions",
+		"match",
 		"configuration",
 		"type-api",
 		"traversal-api",

@@ -4,7 +4,8 @@ import {
 	hasArkKind,
 	parseGeneric,
 	type AliasDefEntry,
-	type ArkScopeConfig,
+	type ArkSchemaRegistry,
+	type ArkSchemaScopeConfig,
 	type BaseNode,
 	type BaseParseContext,
 	type BaseParseContextInput,
@@ -18,6 +19,7 @@ import {
 	type NodeSchema,
 	type PreparsedNodeResolution,
 	type PrivateDeclaration,
+	type ResolvedScopeConfig,
 	type RootKind,
 	type RootSchema,
 	type arkKind,
@@ -41,7 +43,7 @@ import {
 	type flattenListable,
 	type noSuggest
 } from "@ark/util"
-import type { ArkSchemaRegistry } from "./config.ts"
+import type { TypeMetaInput } from "./config.ts"
 import {
 	parseGenericParamName,
 	type GenericDeclaration,
@@ -52,11 +54,12 @@ import {
 	type parseValidGenericParams
 } from "./generic.ts"
 import type { Ark, type } from "./keywords/keywords.ts"
-import { InternalMatchParser } from "./match.ts"
+import { InternalMatchParser, type MatchParser } from "./match.ts"
 import type {
 	BoundModule,
 	Module,
 	Submodule,
+	exportScope,
 	instantiateExport
 } from "./module.ts"
 import type { DefAst, InferredAst } from "./parser/ast/infer.ts"
@@ -71,6 +74,7 @@ import {
 import type { ParsedOptionalProperty } from "./parser/property.ts"
 import type { ParsedDefaultableProperty } from "./parser/shift/operator/default.ts"
 import { ArkTypeScanner } from "./parser/shift/scanner.ts"
+import type { TupleExpression } from "./parser/tupleExpressions.ts"
 import {
 	InternalTypeParser,
 	type DeclarationParser,
@@ -81,11 +85,12 @@ import {
 	type TypeParser,
 	type UnitTypeParser
 } from "./type.ts"
-
 /** The convenience properties attached to `scope` */
 export type ScopeParserAttachments =
 	// map over to remove call signatures
 	Omit<ScopeParser, never>
+
+export interface ArkScopeConfig extends ArkSchemaScopeConfig {}
 
 export interface ScopeParser {
 	<const def>(
@@ -176,15 +181,22 @@ export type moduleKeyOf<$> = {
 
 export interface ArkTypeRegistry extends ArkSchemaRegistry {
 	typeAttachments?: Ark.boundTypeAttachments<any>
+	ambient: exportScope<Ark>
 }
 
-export const $arkTypeRegistry: ArkTypeRegistry = $ark
+export const $arkTypeRegistry: ArkTypeRegistry = $ark as never
 
 export interface InternalScope {
 	constructor: typeof InternalScope
 }
 
+interface ResolvedTypeScopeConfig extends ResolvedScopeConfig {
+	keywords?: Record<string, TypeMetaInput>
+}
+
 export class InternalScope<$ extends {} = {}> extends BaseScope<$> {
+	declare resolvedConfig: ResolvedTypeScopeConfig
+
 	get ambientAttachments(): Ark.boundTypeAttachments<$> | undefined {
 		if (!$arkTypeRegistry.typeAttachments) return
 		return this.cacheGetter(
@@ -196,18 +208,32 @@ export class InternalScope<$ extends {} = {}> extends BaseScope<$> {
 		)
 	}
 
-	protected preparseOwnAliasEntry(k: string, v: unknown): AliasDefEntry {
-		const firstParamIndex = k.indexOf("<")
-		if (firstParamIndex === -1) return [k, v]
+	protected preparseOwnAliasEntry(alias: string, def: unknown): AliasDefEntry {
+		const firstParamIndex = alias.indexOf("<")
+		if (firstParamIndex === -1) {
+			if (hasArkKind(def, "module") || hasArkKind(def, "generic"))
+				return [alias, def]
 
-		if (k.at(-1) !== ">") {
+			const qualifiedName =
+				this.name === "ark" ? alias
+				: alias === "root" ? this.name
+				: `${this.name}.${alias}`
+
+			const config = this.resolvedConfig.keywords?.[qualifiedName]
+
+			if (config) def = [def, "@", config] satisfies TupleExpression
+
+			return [alias, def]
+		}
+
+		if (alias.at(-1) !== ">") {
 			throwParseError(
 				`'>' must be the last character of a generic declaration in a scope`
 			)
 		}
 
-		const name = k.slice(0, firstParamIndex)
-		const paramString = k.slice(firstParamIndex + 1, -1)
+		const name = alias.slice(0, firstParamIndex)
+		const paramString = alias.slice(firstParamIndex + 1, -1)
 
 		return [
 			name,
@@ -216,7 +242,7 @@ export class InternalScope<$ extends {} = {}> extends BaseScope<$> {
 			() => {
 				const params = this.parseGenericParams(paramString, { alias: name })
 
-				const generic = parseGeneric(params, v, this as never)
+				const generic = parseGeneric(params, def, this as never)
 
 				return generic
 			}
@@ -283,8 +309,6 @@ export class InternalScope<$ extends {} = {}> extends BaseScope<$> {
 	instanceOf: InstanceOfTypeParser<$> = ctor =>
 		this.node("proto", { proto: ctor }, { prereduced: true }) as never
 
-	type: InternalTypeParser = new InternalTypeParser(this as never)
-
 	match: InternalMatchParser = new InternalMatchParser(this as never)
 
 	declare = (): { type: InternalTypeParser } => ({
@@ -294,6 +318,8 @@ export class InternalScope<$ extends {} = {}> extends BaseScope<$> {
 	define<def>(def: def): def {
 		return def
 	}
+
+	type: InternalTypeParser = new InternalTypeParser(this as never)
 
 	static scope: ScopeParser = ((def: Dict, config: ArkScopeConfig = {}) =>
 		new InternalScope(def, config)) as never
@@ -362,7 +388,7 @@ export interface Scope<$ = {}> {
 
 	type: TypeParser<$>
 
-	// match: MatchParser<$>
+	match: MatchParser<$>
 
 	declare: DeclarationParser<$>
 

@@ -1,7 +1,7 @@
 import { attest, contextualize } from "@ark/attest"
 import {
 	$ark,
-	configure,
+	configureSchema,
 	rootSchema,
 	schemaScope,
 	type ArkErrors
@@ -121,7 +121,7 @@ contextualize(() => {
 	})
 
 	it("can apply a global config", () => {
-		configure({
+		configureSchema({
 			domain: {
 				description: inner => `my special ${inner.domain}`
 			}
@@ -130,7 +130,7 @@ contextualize(() => {
 		attest(mySpecialSymbol.traverse("foo")?.toString()).snap(
 			"must be my special symbol (was a string)"
 		)
-		configure({
+		configureSchema({
 			domain: $ark.defaultConfig.domain
 		})
 		const myBoringSymbol = schemaScope({}).parseSchema("symbol")

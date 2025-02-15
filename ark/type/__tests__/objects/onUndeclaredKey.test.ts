@@ -82,17 +82,28 @@ contextualize(() => {
 		})
 
 		it("delete union key", () => {
-			const o = type([{ a: "string" }, "|", { b: "boolean" }]).onUndeclaredKey(
-				"delete"
-			)
+			const o = type([
+				{ a: "string" },
+				"|",
+				{ a: "boolean", b: "true" }
+			]).onUndeclaredKey("delete")
 			// can distill to first branch
 			attest(o({ a: "to", z: "bra" })).snap({ a: "to" })
 			// can distill to second branch
-			attest(o({ b: true, c: false })).snap({ b: true })
+			attest(o({ a: true, b: true, c: false })).snap({ a: true, b: true })
 			// can handle missing keys
-			attest(o({ a: 2 }).toString()).snap(
-				"a must be a string (was a number) or b must be boolean (was missing)"
+			attest(o({ a: true }).toString()).snap(
+				"a must be a string (was boolean) or b must be true (was missing)"
 			)
+		})
+
+		it("fails on delete indiscriminable union key", () => {
+			attest(() =>
+				type([{ a: "string" }, "|", { b: "boolean" }]).onUndeclaredKey("delete")
+			).throws
+				.snap(`ParseError: An unordered union of a type including a morph and a type with overlapping input is indeterminate:
+Left: { a: string, + (undeclared): delete }
+Right: { b: boolean, + (undeclared): delete }`)
 		})
 
 		it("reject key", () => {

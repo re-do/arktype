@@ -1,8 +1,8 @@
 export {
 	ArkError,
 	ArkErrors,
-	type ArkConfig,
-	type ArkScopeConfig,
+	type ArkSchemaConfig,
+	type ArkSchemaScopeConfig,
 	type JsonSchema
 } from "@ark/schema"
 export { Hkt, inferred } from "@ark/util"
@@ -15,6 +15,7 @@ export {
 	define,
 	generic,
 	keywords,
+	match,
 	type,
 	type Ark
 } from "./keywords/keywords.ts"

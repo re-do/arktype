@@ -95,6 +95,7 @@ export declare namespace ArkTypeScanner {
 		| "%"
 		| ":"
 		| "=>"
+		| "|>"
 		| "#"
 		| "@"
 		| "="

@@ -63,14 +63,14 @@ const Boat = ({ headerRect, loopDuration, bobFrames }: BoatProps) => {
 		<motion.div
 			className="pointer-events-none"
 			initial={{
-				position: "relative",
-				top: headerRect.height - 60,
-				left: -40,
+				position: "absolute",
+				top: headerRect.height - 88,
+				x: -40,
 				zIndex: -10,
 				opacity: 0
 			}}
 			animate={{
-				left: headerRect.width - 100,
+				x: headerRect.width - 100,
 				y: bobFrames,
 				opacity: opacityFrames
 			}}

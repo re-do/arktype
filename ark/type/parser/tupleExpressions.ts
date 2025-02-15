@@ -3,7 +3,6 @@ import {
 	intersectNodesRoot,
 	type BaseParseContext,
 	type BaseRoot,
-	type MetaSchema,
 	type Morph,
 	type Predicate,
 	type unwrapDefault
@@ -22,10 +21,12 @@ import type {
 	distill,
 	inferIntersection,
 	inferMorphOut,
+	inferPipe,
 	inferPredicate,
 	Out,
 	withDefault
 } from "../attributes.ts"
+import type { TypeMetaInput } from "../config.ts"
 import type { type } from "../keywords/keywords.ts"
 import {
 	shallowDefaultableMessage,
@@ -71,6 +72,7 @@ export type inferTupleExpression<def extends TupleExpression, $, args> =
 	: def[1] extends ":" ?
 		inferPredicate<inferDefinition<def[0], $, args>, def[2]>
 	: def[1] extends "=>" ? parseMorph<def[0], def[2], $, args>
+	: def[1] extends "|>" ? parseTo<def[0], def[2], $, args>
 	: def[1] extends "=" ?
 		withDefault<inferDefinition<def[0], $, args>, unwrapDefault<def[2]>>
 	: def[1] extends "@" ? inferDefinition<def[0], $, args>
@@ -107,8 +109,9 @@ export type validateIndexOneExpression<
 			: def[1] extends "&" ? validateDefinition<def[2], $, args>
 			: def[1] extends ":" ? Predicate<type.infer.Out<def[0], $, args>>
 			: def[1] extends "=>" ? Morph<type.infer.Out<def[0], $, args>>
+			: def[1] extends "|>" ? validateDefinition<def[2], $, args>
 			: def[1] extends "=" ? defaultFor<type.infer.In<def[0], $, args>>
-			: def[1] extends "@" ? MetaSchema
+			: def[1] extends "@" ? TypeMetaInput
 			: validateDefinition<def[2], $, args>
 		]
 
@@ -161,7 +164,7 @@ export type ArgTwoOperator = Exclude<IndexOneOperator, "?" | "=">
 
 export type TuplePostfixOperator = "[]" | "?"
 
-export type TupleInfixOperator = "&" | "|" | "=>" | "=" | ":" | "@"
+export type TupleInfixOperator = "&" | "|" | "=>" | "|>" | "=" | ":" | "@"
 
 export type IndexOneExpression<
 	token extends IndexOneOperator = IndexOneOperator
@@ -179,13 +182,25 @@ export const parseMorphTuple: IndexOneParser<"=>"> = (def, ctx) => {
 	return ctx.$.parseOwnDefinitionFormat(def[0], ctx).pipe(def[2] as Morph)
 }
 
+export const parseToTuple: IndexOneParser<"|>"> = (def, ctx) => {
+	const node = ctx.$.parseOwnDefinitionFormat(def[0], ctx)
+	const outputValidator = ctx.$.parseOwnDefinitionFormat(def[2], ctx)
+
+	return node.to(outputValidator)
+}
+
 export const writeMalformedFunctionalExpressionMessage = (
-	operator: ":" | "=>",
+	operator: ":" | "=>" | "|>",
 	value: unknown
 ): string =>
 	`${
 		operator === ":" ? "Narrow" : "Morph"
 	} expression requires a function following '${operator}' (was ${typeof value})`
+
+export type parseTo<inDef, outDef, $, args> = inferPipe<
+	inferDefinition<inDef, $, args>,
+	inferDefinition<outDef, $, args>
+>
 
 export type parseMorph<inDef, morph, $, args> =
 	morph extends Morph ?
@@ -219,6 +234,7 @@ const indexOneParsers: {
 	"&": parseBranchTuple,
 	":": parseNarrowTuple,
 	"=>": parseMorphTuple,
+	"|>": parseToTuple,
 	"@": parseAttributeTuple,
 	// since object and tuple literals parse there via `parseProperty`,
 	// they must be shallow if parsed directly as a tuple expression

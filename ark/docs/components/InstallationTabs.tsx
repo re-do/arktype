@@ -11,7 +11,7 @@ type InstallationTabProps = {
 
 const InstallerTab = ({ name }: InstallationTabProps) => (
 	<Tab value={name} className="installer-tab">
-		<CodeBlock lang="bash">{`${name} ${ name === "yarn" ? "add" : "install"} arktype`}</CodeBlock>
+		<CodeBlock lang="bash">{`${name} ${name === "yarn" ? "add" : "install"} arktype`}</CodeBlock>
 	</Tab>
 )
 

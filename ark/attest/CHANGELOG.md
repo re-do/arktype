@@ -1,5 +1,20 @@
 # @ark/attest
 
+NOTE: This changelog is incomplete, but will include notable attest-specific changes (many updates consist almost entirely of bumped `arktype` versions for assertions).
+
+## 0.42.0
+
+### Bail early for obviously incorrect `equals` comparisons
+
+This is the short-term solution to #1287, where some comparisons with Node's `deepStrictEqual` and object with recursive properties like Type resulted in OOM crashes.
+
+We will eventually add new string-diffing logic, but for now we just make some shallow comparisons between constructors and types to avoid common problematic comparisons, e.g. between Type instances:
+
+```ts
+// previously resulted in OOM exception, now shallowly fails with simple error
+attest(type.string).equals(type.boolean)
+```
+
 ## 0.11.0
 
 - Fix a bug causing certain serialized types with backticks and template literals to be incorrectly formatted on inline snapshot

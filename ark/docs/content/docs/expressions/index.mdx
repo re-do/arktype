@@ -372,6 +372,85 @@ const trimStringStart = type("string", "=>", str => str.trimStart())
 
 </SyntaxTabs>
 
+#### To
+
+If a morph returns an `ArkErrors` instance, validation will fail with that result instead of it being treated as a value. This is especially useful for using other Types as morphs to validate output or chain transformations.
+
+To make this easier, there's a special `to` operator that can pipe to a parsed definition without having to wrap it in `type` to make it a function:
+
+<SyntaxTabs>
+    <SyntaxTab fluent>
+
+```ts
+const even = type("number % 2")
+const parseEven = type("string.numeric.parse").pipe(even)
+
+// equivalent to parseEven
+const parseEvenSugared = type("string.numeric.parse").to("number % 2")
+```
+
+    </SyntaxTab>
+
+    <SyntaxTab tuple>
+
+```ts
+const even = type("number % 2")
+const parseEven = type("string.numeric.parse").pipe(even)
+
+// equivalent to parseEven
+const parseEvenSugared = type(["string.numeric.parse", "|>", "number % 2"])
+```
+
+    </SyntaxTab>
+
+    <SyntaxTab args>
+
+```ts
+const even = type("number % 2")
+const parseEven = type("string.numeric.parse").pipe(even)
+
+// equivalent to parseEven
+const parseEvenSugared = type("string.numeric.parse", "|>", "number % 2")
+```
+
+    </SyntaxTab>
+
+</SyntaxTabs>
+
+### Morph
+
+Morphs allow you to transform your data after it is validated. You can read more about them in [their intro section](/docs/intro/morphs-and-more/).
+
+<SyntaxTabs>
+    <SyntaxTab fluent>
+
+```ts
+// hover to see how morphs are represented at a type-level
+const trimStringStart = type("string").pipe(str => str.trimStart())
+```
+
+    </SyntaxTab>
+
+    <SyntaxTab tuple>
+
+```ts
+// hover to see how morphs are represented at a type-level
+const trimStringStart = type(["string", "=>", str => str.trimStart()])
+```
+
+    </SyntaxTab>
+
+    <SyntaxTab args>
+
+```ts
+// hover to see how morphs are represented at a type-level
+const trimStringStart = type("string", "=>", str => str.trimStart())
+```
+
+    </SyntaxTab>
+
+</SyntaxTabs>
+
 ### Unit
 
 While embedded [literal syntax](/docs/primitives#number-literals) is usually ideal for defining exact primitive values, `===` and `type.unit` can be helpful for referencing a non-serialiazable value like a `symbol` from your type.
@@ -556,13 +635,24 @@ const groups = type({
 `this` is a special keyword that can be used to create a recursive type referencing the root of the current definition.
 
 ```ts
-const fetchGift = async () => null
-// ---cut---
-const disappointingGift = type({ label: "string", "box?": "this" })
-const myGift = disappointingGift.assert(await fetchGift())
+const disappointingGift = type({
+	label: "string",
+	"box?": "this"
+})
 
-// hover me
-const chainable = myGift.box?.box?.label
+const out = disappointingGift({
+	label: "foo",
+	box: { label: "bar", box: {} }
+})
+
+if (out instanceof type.errors) {
+	// ArkErrors: box.box.label must be a string (was missing)
+	console.error(out.summary)
+} else {
+	// narrowed inference to arbitrary depth
+	console.log(out.box?.box?.label)
+	//                         ^?
+}
 ```
 
 Unlike its TypeScript counterpart, ArkType's `this` is not limited to interfaces. It can also be used from within a tuple expression.

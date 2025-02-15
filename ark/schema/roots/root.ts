@@ -9,13 +9,7 @@ import {
 } from "@ark/util"
 import { throwInvalidOperandError, type Constraint } from "../constraint.ts"
 import type { NodeSchema, nodeOfKind, reducibleKindOf } from "../kinds.ts"
-import {
-	BaseNode,
-	appendUniqueFlatRefs,
-	type FlatRef,
-	type GettableKeyOrNode,
-	type KeyOrKeyNode
-} from "../node.ts"
+import { BaseNode, type GettableKeyOrNode, type KeyOrKeyNode } from "../node.ts"
 import type { Predicate } from "../predicate.ts"
 import type { Divisor } from "../refinements/divisor.ts"
 import type { ExactLength } from "../refinements/exactLength.ts"
@@ -75,11 +69,6 @@ export abstract class BaseRoot<
 		super(attachments, $)
 		// define as a getter to avoid it being enumerable/spreadable
 		Object.defineProperty(this, arkKind, { value: "root", enumerable: false })
-	}
-
-	assert = (data: unknown): unknown => {
-		const result = this.traverse(data)
-		return result instanceof ArkErrors ? result.throw() : result
 	}
 
 	get internal(): this {
@@ -342,11 +331,15 @@ export abstract class BaseRoot<
 	}
 
 	protected _pipe(...morphs: Morph[]): BaseRoot {
-		return morphs.reduce<BaseRoot>((acc, morph) => acc.pipeOnce(morph), this)
+		const result = morphs.reduce<BaseRoot>(
+			(acc, morph) => acc.pipeOnce(morph),
+			this
+		)
+		return this.$.finalize(result)
 	}
 
 	protected tryPipe(...morphs: Morph[]): BaseRoot {
-		return morphs.reduce<BaseRoot>(
+		const result = morphs.reduce<BaseRoot>(
 			(acc, morph) =>
 				acc.pipeOnce(
 					hasArkKind(morph, "root") ? morph : (
@@ -365,6 +358,7 @@ export abstract class BaseRoot<
 				),
 			this
 		)
+		return this.$.finalize(result)
 	}
 
 	pipe = Object.assign(this._pipe.bind(this), {
@@ -396,29 +390,6 @@ export abstract class BaseRoot<
 						morphs: [morph]
 					}),
 			this.$.parseSchema
-		)
-	}
-
-	get flatMorphs(): array<FlatRef<Morph.Node>> {
-		return this.cacheGetter(
-			"flatMorphs",
-			this.flatRefs.reduce<FlatRef<Morph.Node>[]>(
-				(branches, ref) =>
-					appendUniqueFlatRefs(
-						branches,
-						ref.node.hasKind("union") ?
-							ref.node.branches
-								.filter(b => b.hasKind("morph"))
-								.map(branch => ({
-									path: ref.path,
-									propString: ref.propString,
-									node: branch
-								}))
-						: ref.node.hasKind("morph") ? (ref as FlatRef<Morph.Node>)
-						: []
-					),
-				[]
-			)
 		)
 	}
 

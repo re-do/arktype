@@ -1,9 +1,13 @@
 {
 	"title": "Configuration",
 	"pages": [
+		"[keywords](/docs/configuration#keywords)",
 		"[errors](/docs/configuration#errors)",
 		"[clone](/docs/configuration#clone)",
 		"[onUndeclaredKey](/docs/configuration#onundeclaredkey)",
-		"[jitless](/docs/configuration#jitless)"
+		"[jitless](/docs/configuration#jitless)",
+		"[onFail](/docs/configuration#onFail)",
+		"[prototypes](/docs/configuration#protoypes)",
+		"[metadata](/docs/configuration#metadata)"
 	]
 }

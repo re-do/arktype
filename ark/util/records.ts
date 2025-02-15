@@ -353,3 +353,12 @@ type _withJsDoc<o, jsDocSource> = {
 export type propertyDescriptorsOf<o extends object> = {
 	[k in keyof o]: TypedPropertyDescriptor<o[k]>
 }
+
+export type keyWithValue<t, constraint> =
+	keyof t extends infer k ?
+		k extends keyof t ?
+			t[k] extends constraint ?
+				k
+			:	never
+		:	never
+	:	never

@@ -80,21 +80,47 @@ export const versionableAssertion =
 const unversionedAssertEquals: AssertFn = (expected, actual, ctx) => {
 	if (expected === actual) return
 
-	if (typeof expected === "object" && typeof actual === "object") {
-		try {
-			assert.deepStrictEqual(actual, expected)
-		} catch (e: any) {
-			e.stack = ctx.assertionStack
-			throw e
-		}
-	} else {
+	try {
+		if (
+			typeof expected === "object" &&
+			expected !== null &&
+			typeof actual === "object" &&
+			actual !== null
+		) {
+			if (expected.constructor === actual.constructor)
+				assert.deepStrictEqual(actual, expected)
+			else {
+				const serializedExpected = printable(expected)
+				const serializedActual = printable(actual)
+				throw new assert.AssertionError({
+					message: `Objects did not have the same constructor:
+Expected: ${serializedExpected}
+Actual: ${serializedActual}`,
+					expected: serializedExpected,
+					actual: serializedActual
+				})
+			}
+		} else if (
+			typeof expected === "object" ||
+			typeof expected === "function" ||
+			typeof actual === "function" ||
+			typeof actual === "function"
+		) {
+			const serializedExpected = printable(expected)
+			const serializedActual = printable(actual)
+			throw new assert.AssertionError({
+				message: `Assertion including at least one function or object was not between reference eqaul items
+Expected: ${serializedExpected}
+Actual: ${serializedActual}`,
+				expected: serializedExpected,
+				actual: serializedActual
+			})
+			// guaranteed to be two primitives at this point
+		} else assert.equal(actual, expected)
+	} catch (e: any) {
 		// some nonsense to get a good stack trace
-		try {
-			assert.strictEqual(actual, expected)
-		} catch (e: any) {
-			e.stack = ctx.assertionStack
-			throw e
-		}
+		e.stack = ctx.assertionStack
+		throw e
 	}
 }
 

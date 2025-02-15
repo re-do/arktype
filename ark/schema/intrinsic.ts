@@ -57,12 +57,7 @@ const intrinsicJson = schemaScope(
 				value: "$jsonData"
 			}
 		},
-		jsonArray: {
-			proto: Array,
-			sequence: "$jsonData"
-		},
-		jsonData: ["$jsonPrimitive", "$jsonObject", "$jsonArray"],
-		json: ["$jsonObject", "$jsonArray"]
+		jsonData: ["$jsonPrimitive", "$jsonObject"]
 	},
 	{ prereducedAliases: true }
 ).export()

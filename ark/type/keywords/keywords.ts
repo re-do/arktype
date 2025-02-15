@@ -1,8 +1,10 @@
-import type { ArkErrors, arkKind } from "@ark/schema"
+import type { ArkErrors, arkKind, flatResolutionsOf } from "@ark/schema"
 import type { Brand, inferred } from "@ark/util"
 import type { distill, InferredMorph, Out, To } from "../attributes.ts"
 import type { GenericParser } from "../generic.ts"
+import type { MatchParser } from "../match.ts"
 import type { BaseType } from "../methods/base.ts"
+import type { instantiateType } from "../methods/instantiate.ts"
 import type { BoundModule, Module } from "../module.ts"
 import type {
 	inferDefinition,
@@ -41,6 +43,8 @@ export declare namespace Ark {
 		unknown: unknown.submodule
 	}
 
+	export type flat = flatResolutionsOf<Ark>
+
 	export interface typeAttachments extends arkTsKeywords.$ {
 		arrayIndex: arkPrototypes.$["Array"]["index"]
 		Key: arkBuiltins.$["Key"]
@@ -51,15 +55,6 @@ export declare namespace Ark {
 
 	export interface boundTypeAttachments<$>
 		extends Omit<BoundModule<typeAttachments, $>, arkKind> {}
-}
-
-$arkTypeRegistry.typeAttachments = {
-	...arkTsKeywords,
-	arrayIndex: arkPrototypes.Array.index,
-	Key: arkBuiltins.Key,
-	Record: arkTsGenerics.Record,
-	Array: arkPrototypes.Array.root,
-	Date: arkPrototypes.Date
 }
 
 export const ark: Scope<Ark> = scope(
@@ -73,12 +68,40 @@ export const ark: Scope<Ark> = scope(
 		object,
 		unknown
 	},
-	{ prereducedAliases: true, ambient: true }
+	{ prereducedAliases: true, name: "ark" }
 ) as never
 
 export const keywords: Module<Ark> = ark.export()
 
-export const type: TypeParser<{}> = ark.type as never
+Object.assign($arkTypeRegistry.ambient, keywords)
+
+$arkTypeRegistry.typeAttachments = {
+	string: keywords.string.root,
+	number: keywords.number.root,
+	bigint: keywords.bigint,
+	boolean: keywords.boolean,
+	symbol: keywords.symbol,
+	undefined: keywords.undefined,
+	null: keywords.null,
+	object: keywords.object.root,
+	unknown: keywords.unknown.root,
+	false: keywords.false,
+	true: keywords.true,
+	never: keywords.never,
+	arrayIndex: keywords.Array.index,
+	Key: keywords.Key,
+	Record: keywords.Record,
+	Array: keywords.Array.root,
+	Date: keywords.Date
+}
+
+export const type: TypeParser<{}> = Object.assign(
+	ark.type,
+	// assign attachments newly parsed in keywords
+	// future scopes add these directly from the
+	// registry when their TypeParsers are instantiated
+	$arkTypeRegistry.typeAttachments
+) as never
 
 export declare namespace type {
 	export interface cast<to> {
@@ -118,6 +141,11 @@ export declare namespace type {
 		args
 	>
 
+	export type instantiate<def, $ = {}, args = bindThis<def>> = instantiateType<
+		inferDefinition<def, $, args>,
+		$
+	>
+
 	export type brand<t, id> =
 		t extends InferredMorph<infer i, infer o> ?
 			o["introspectable"] extends true ?
@@ -128,7 +156,7 @@ export declare namespace type {
 
 export type type<t = unknown, $ = {}> = Type<t, $>
 
-// export const match: MatchParser<{}> = ark.match as never
+export const match: MatchParser<{}> = ark.match as never
 
 export const generic: GenericParser<{}> = ark.generic as never
 

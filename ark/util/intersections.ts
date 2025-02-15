@@ -44,7 +44,9 @@ type intersectSequences<
 				[...acc, ...postfix]
 			:	never
 		:	[...acc, ...l, ...postfix]
-	: [l, r] extends (
+	: // credit to @alexandroppolus for this part of the implementation
+	// https://github.com/type-challenges/type-challenges/issues/33210
+	[l, r] extends (
 		[
 			readonly [(infer lHead)?, ...infer lTail],
 			readonly [(infer rHead)?, ...infer rTail]

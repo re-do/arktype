@@ -1,9 +1,7 @@
 import type {
-	ArkErrors,
 	BaseRoot,
 	Disjoint,
 	JsonSchema,
-	MetaSchema,
 	Morph,
 	Predicate,
 	StandardSchemaV1,
@@ -23,20 +21,20 @@ import type {
 	distill,
 	inferIntersection,
 	inferMorphOut,
+	inferPipe,
 	inferPipes,
 	InferredMorph,
 	Out,
 	To
 } from "../attributes.ts"
-import type { ArkAmbient } from "../config.ts"
+import type { ArkAmbient, TypeMetaInput } from "../config.ts"
 import type { type } from "../keywords/keywords.ts"
 import type { Scope } from "../scope.ts"
 import type { ArrayType } from "./array.ts"
 import type { instantiateType } from "./instantiate.ts"
 
 /** @ts-ignore cast variance */
-interface Type<out t = unknown, $ = {}>
-	extends Callable<(data: unknown) => distill.Out<t> | ArkErrors> {
+export interface Inferred<out t = unknown, $ = {}> {
 	internal: BaseRoot
 	[inferred]: t
 
@@ -219,7 +217,7 @@ interface Type<out t = unknown, $ = {}>
 	 * // error message at root is affected, leading to a misleading description
 	 * const nonObject = notOddBox(null) // must be not odd (was null)
 	 */
-	configure(meta: MetaSchema): this
+	configure<meta extends TypeMetaInput>(meta: meta): this
 
 	/**
 	 * #### add description to shallow references
@@ -301,19 +299,6 @@ interface Type<out t = unknown, $ = {}>
 	get out(): instantiateType<this["inferIntrospectableOut"], $>
 
 	/**
-	 * #### cast the way this is inferred
-	 *
-	 * @typenoop
-	 *
-	 * @example
-	 * // Type<`LEEEEEEEE${string}ROY`>
-	 * const leeroy = type(/^LE{8,}ROY$/).as<`LEEEEEEEE${string}ROY`>()
-	 */
-	as<castTo = unset>(
-		...args: validateChainedAsArgs<castTo>
-	): instantiateType<castTo, $>
-
-	/**
 	 * #### add a compile-time brand to output
 	 *
 	 * @typenoop
@@ -325,35 +310,9 @@ interface Type<out t = unknown, $ = {}>
 	 * // Brand<string, "palindrome">
 	 * const out = palindrome.assert("racecar")
 	 */
-	brand<const name extends string, r = type.brand<t, name>>(
+	brand<const name extends string, r = instantiateType<type.brand<t, name>, $>>(
 		name: name
-	): instantiateType<r, $>
-
-	/**
-	 * #### intersect the parsed Type, throwing if the result is unsatisfiable
-	 *
-	 * @example
-	 * // Type<{ foo: number; bar: string }>
-	 * const t = type({ foo: "number" }).and({ bar: "string" })
-	 * // ParseError: Intersection at foo of number and string results in an unsatisfiable type
-	 * const bad = type({ foo: "number" }).and({ foo: "string" })
-	 */
-	and<const def, r = type.infer<def, $>>(
-		def: type.validate<def, $>
-	): instantiateType<inferIntersection<t, r>, $>
-
-	/**
-	 * #### union with the parsed Type
-	 *
-	 * ⚠️ a union that could apply different morphs to the same data is a ParseError ([docs](https://arktype.io/docs/expressions/union-morphs))
-	 *
-	 * @example
-	 * // Type<string | { box: string }>
-	 * const t = type("string").or({ box: "string" })
-	 */
-	or<const def, r = type.infer<def, $>>(
-		def: type.validate<def, $>
-	): instantiateType<t | r, $>
+	): r extends infer _ ? _ : never
 
 	/**
 	 * #### an array of this
@@ -412,17 +371,20 @@ interface Type<out t = unknown, $ = {}>
 	 */
 	filter<
 		narrowed extends this["inferIn"] = never,
-		r = [narrowed] extends [never] ? t
-		: t extends InferredMorph<any, infer o> ? (In: narrowed) => o
-		: narrowed
+		r = instantiateType<
+			[narrowed] extends [never] ? t
+			: t extends InferredMorph<any, infer o> ? (In: narrowed) => o
+			: narrowed,
+			$
+		>
 	>(
 		predicate: Predicate.Castable<this["inferIn"], narrowed>
-	): instantiateType<r, $>
+	): r extends infer _ ? _ : never
 
 	/**
 	 * #### apply a predicate function to output
 	 *
-	 * ✅ go-to fallback for validation not composable via built-in types and operators
+	 * ✅ go-to fallback for validation not composable via builtin types and operators
 	 * ✅ runs after all other validators and morphs, if present
 	 * @predicateCast
 	 *
@@ -437,22 +399,89 @@ interface Type<out t = unknown, $ = {}>
 	 */
 	narrow<
 		narrowed extends this["infer"] = never,
-		r = [narrowed] extends [never] ? t
-		: t extends InferredMorph<infer i, infer o> ?
-			o extends To ?
-				(In: i) => To<narrowed>
-			:	(In: i) => Out<narrowed>
-		:	narrowed
+		r = instantiateType<
+			[narrowed] extends [never] ? t
+			: t extends InferredMorph<infer i, infer o> ?
+				o extends To ?
+					(In: i) => To<narrowed>
+				:	(In: i) => Out<narrowed>
+			:	narrowed,
+			$
+		>
 	>(
 		predicate: Predicate.Castable<this["infer"], narrowed>
-	): instantiateType<r, $>
+	): r extends infer _ ? _ : never
 
 	/**
-	 * Morph this `Type` through a chain of morphs.
-	 * @example const dedupe = type('string[]').pipe(a => Array.from(new Set(a)))
-	 * @example type({codes: 'string.numeric[]'}).pipe(obj => obj.codes).to('string.numeric.parse[]')
+	 * #### pipe output through arbitrary transformations or other Types
+	 *
+	 * @example
+	 * const user = type({ name: "string" })
+	 *
+	 * // parse a string and validate that the result as a user
+	 * const parseUser = type("string").pipe(s => JSON.parse(s), user)
 	 */
 	pipe: ChainedPipe<t, $>
+
+	/**
+	 * #### parse a definition as an output validator
+	 *
+	 * 🔗 `to({ name: "string" })` is equivalent to `.pipe(type({ name: "string" }))`
+	 *
+	 * @example
+	 * // parse a string and validate that the result as a user
+	 * const parseUser = type("string").pipe(s => JSON.parse(s)).to({ name: "string" })
+	 */
+	to<const def, r = instantiateType<inferPipe<t, type.infer<def, $>>, $>>(
+		def: type.validate<def, $>
+	): r extends infer _ ? _ : never
+}
+
+/** @ts-ignore cast variance */
+interface Type<out t = unknown, $ = {}>
+	extends Callable<(data: unknown) => distill.Out<t> | ArkEnv.onFail>,
+		Inferred<t, $> {
+	/**
+	 * #### cast the way this is inferred
+	 *
+	 * @typenoop
+	 *
+	 * @example
+	 * // Type<`LEEEEEEEE${string}ROY`>
+	 * const leeroy = type(/^LE{8,}ROY$/).as<`LEEEEEEEE${string}ROY`>()
+	 */
+	as<castTo = unset>(
+		...args: validateChainedAsArgs<castTo>
+	): instantiateType<castTo, $>
+
+	/**
+	 * #### intersect the parsed Type, throwing if the result is unsatisfiable
+	 *
+	 * @example
+	 * // Type<{ foo: number; bar: string }>
+	 * const t = type({ foo: "number" }).and({ bar: "string" })
+	 * // ParseError: Intersection at foo of number and string results in an unsatisfiable type
+	 * const bad = type({ foo: "number" }).and({ foo: "string" })
+	 */
+	and<
+		const def,
+		r = instantiateType<inferIntersection<t, type.infer<def, $>>, $>
+	>(
+		def: type.validate<def, $>
+	): r extends infer _ ? _ : never
+
+	/**
+	 * #### union with the parsed Type
+	 *
+	 * ⚠️ a union that could apply different morphs to the same data is a ParseError ([docs](https://arktype.io/docs/expressions/union-morphs))
+	 *
+	 * @example
+	 * // Type<string | { box: string }>
+	 * const t = type("string").or({ box: "string" })
+	 */
+	or<const def, r = instantiateType<t | type.infer<def, $>, $>>(
+		def: type.validate<def, $>
+	): r extends infer _ ? _ : never
 
 	// inferring r into an alias improves perf and avoids return type inference
 	// that can lead to incorrect results. See:
@@ -467,9 +496,12 @@ interface Type<out t = unknown, $ = {}>
 	 * // logs "Intersection of > 10 and < 5 results in an unsatisfiable type"
 	 * if (bad instanceof Disjoint) console.log(`${bad.summary}`)
 	 */
-	intersect<const def, r = type.infer<def, $>>(
+	intersect<
+		const def,
+		r = instantiateType<inferIntersection<t, type.infer<def, $>>, $>
+	>(
 		def: type.validate<def, $>
-	): instantiateType<inferIntersection<t, r>, $> | Disjoint
+	): r extends infer _ ? _ | Disjoint : never
 
 	/**
 	 * #### check if the parsed Type's constraints are identical
@@ -499,9 +531,9 @@ interface Type<out t = unknown, $ = {}>
 	 * // Type<0.5> | undefined
 	 * const ez = n.ifEquals("0.5")
 	 */
-	ifEquals<const def, r = type.infer<def, $>>(
+	ifEquals<const def, r = type.instantiate<def, $>>(
 		def: type.validate<def, $>
-	): instantiateType<r, $> | undefined
+	): r extends infer _ ? _ | undefined : never
 
 	/**
 	 * #### check if this is a subtype of the parsed Type
@@ -525,9 +557,9 @@ interface Type<out t = unknown, $ = {}>
 	 * const n = type(Math.random() > 0.5 ? "true" : "0") // Type<0 | true>
 	 * const ez = n.ifExtends("boolean") // Type<true> | undefined
 	 */
-	ifExtends<const def, r = type.infer<def, $>>(
+	ifExtends<const def, r = type.instantiate<def, $>>(
 		other: type.validate<def, $>
-	): instantiateType<r, $> | undefined
+	): r extends infer _ ? _ | undefined : never
 
 	/**
 	 * #### check if a value could satisfy this and the parsed Type
@@ -551,9 +583,12 @@ interface Type<out t = unknown, $ = {}>
 	 * // Type<true | 0 | 2>
 	 * const t = type("boolean | 0 | 'one' | 2 | bigint").extract("number | 0n | true")
 	 */
-	extract<const def, r = type.infer<def, $>>(
+	extract<
+		const def,
+		r = instantiateType<t extends type.infer<def, $> ? t : never, $>
+	>(
 		r: type.validate<def, $>
-	): instantiateType<Extract<t, r>, $>
+	): r extends infer _ extends r ? _ : never
 
 	/**
 	 * #### exclude branches {@link extend}ing the parsed Type
@@ -563,9 +598,12 @@ interface Type<out t = unknown, $ = {}>
 	 * // Type<false | 'one' | bigint>
 	 * const t = type("boolean | 0 | 'one' | 2 | bigint").exclude("number | 0n | true")
 	 */
-	exclude<const def, r = type.infer<def, $>>(
+	exclude<
+		const def,
+		r = instantiateType<t extends type.infer<def, $> ? never : t, $>
+	>(
 		r: type.validate<def, $>
-	): instantiateType<Exclude<t, r>, $>
+	): r extends infer _ ? _ : never
 
 	/**
 	 * @experimental
@@ -622,7 +660,7 @@ interface Type<out t = unknown, $ = {}>
 interface ChainedPipeSignature<t, $> {
 	<a extends Morph<distill.Out<t>>, r = instantiateType<inferPipes<t, [a]>, $>>(
 		a: a
-	): NoInfer<r> extends infer result ? result : never
+	): r extends infer _ ? _ : never
 	<
 		a extends Morph<distill.Out<t>>,
 		b extends Morph<inferMorphOut<a>>,
@@ -630,7 +668,7 @@ interface ChainedPipeSignature<t, $> {
 	>(
 		a: a,
 		b: b
-	): NoInfer<r> extends infer result ? result : never
+	): r extends infer _ ? _ : never
 	<
 		a extends Morph<distill.Out<t>>,
 		b extends Morph<inferMorphOut<a>>,
@@ -640,7 +678,7 @@ interface ChainedPipeSignature<t, $> {
 		a: a,
 		b: b,
 		c: c
-	): NoInfer<r> extends infer result ? result : never
+	): r extends infer _ ? _ : never
 	<
 		a extends Morph<distill.Out<t>>,
 		b extends Morph<inferMorphOut<a>>,
@@ -652,7 +690,7 @@ interface ChainedPipeSignature<t, $> {
 		b: b,
 		c: c,
 		d: d
-	): NoInfer<r> extends infer result ? result : never
+	): r extends infer _ ? _ : never
 	<
 		a extends Morph<distill.Out<t>>,
 		b extends Morph<inferMorphOut<a>>,
@@ -666,7 +704,7 @@ interface ChainedPipeSignature<t, $> {
 		c: c,
 		d: d,
 		e: e
-	): NoInfer<r> extends infer result ? result : never
+	): r extends infer _ ? _ : never
 	<
 		a extends Morph<distill.Out<t>>,
 		b extends Morph<inferMorphOut<a>>,
@@ -682,7 +720,7 @@ interface ChainedPipeSignature<t, $> {
 		d: d,
 		e: e,
 		f: f
-	): NoInfer<r> extends infer result ? result : never
+	): r extends infer _ ? _ : never
 	<
 		a extends Morph<distill.Out<t>>,
 		b extends Morph<inferMorphOut<a>>,
@@ -700,7 +738,7 @@ interface ChainedPipeSignature<t, $> {
 		e: e,
 		f: f,
 		g: g
-	): NoInfer<r> extends infer result ? result : never
+	): r extends infer _ ? _ : never
 }
 
 export interface ChainedPipe<t, $> extends ChainedPipeSignature<t, $> {

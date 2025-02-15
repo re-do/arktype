@@ -36,26 +36,30 @@ interface Type<out t extends object = object, $ = {}> extends BaseType<t, $> {
 	 * Get the `Type` of a property of this `Type<object>`.
 	 * @example type({ foo: "string" }).get("foo") // Type<string>
 	 */
-	get<const k1 extends arkIndexableOf<t>, r = arkGet<t, k1>>(
-		k1: k1 | type.cast<k1>
-	): instantiateType<r, $>
 	get<
 		const k1 extends arkIndexableOf<t>,
-		const k2 extends arkIndexableOf<arkGet<t, k1>>
+		r = instantiateType<arkGet<t, k1>, $>
+	>(
+		k1: k1 | type.cast<k1>
+	): r extends infer _ ? _ : never
+	get<
+		const k1 extends arkIndexableOf<t>,
+		const k2 extends arkIndexableOf<arkGet<t, k1>>,
+		r = instantiateType<arkGet<arkGet<t, k1>, k2>, $>
 	>(
 		k1: k1 | type.cast<k1>,
 		k2: k2 | type.cast<k2>
-	): instantiateType<arkGet<arkGet<t, k1>, k2>, $> extends infer r ? r : never
+	): r extends infer _ ? _ : never
 	get<
 		const k1 extends arkIndexableOf<t>,
 		const k2 extends arkIndexableOf<arkGet<t, k1>>,
 		const k3 extends arkIndexableOf<arkGet<arkGet<t, k1>, k2>>,
-		r = arkGet<arkGet<arkGet<t, k1>, k2>, k3>
+		r = instantiateType<arkGet<arkGet<arkGet<t, k1>, k2>, k3>, $>
 	>(
 		k1: k1 | type.cast<k1>,
 		k2: k2 | type.cast<k2>,
 		k3: k3 | type.cast<k3>
-	): instantiateType<r, $>
+	): r extends infer _ ? _ : never
 
 	/**
 	 * Create a copy of this `Type` with only the specified properties.
@@ -87,11 +91,15 @@ interface Type<out t extends object = object, $ = {}> extends BaseType<t, $> {
 	 * Merge another `Type` definition, overriding properties of this `Type` with the duplicate keys.
 	 * @example type({ a: "1", b: "2" }).merge({ b: "3", c: "4" }) // Type<{ a: 1, b: 3, c: 4 }>
 	 */
-	merge<const def, r = type.infer<def, $>>(
+	merge<
+		const def,
+		inferredDef = type.infer<def, $>,
+		r = Type<merge<t, inferredDef>, $>
+	>(
 		def: type.validate<def, $> &
-			(r extends object ? unknown
-			:	ErrorType<"Merged type must be an object", [actual: r]>)
-	): Type<merge<t, r & object>, $>
+			(inferredDef extends object ? unknown
+			:	ErrorType<"Merged type must be an object", [actual: inferredDef]>)
+	): r extends infer _ ? _ : never
 
 	/**
 	 * Create a copy of this `Type` with all properties required.
@@ -105,10 +113,13 @@ interface Type<out t extends object = object, $ = {}> extends BaseType<t, $> {
 	 */
 	partial(): Type<{ [k in keyof t]?: t[k] }, $>
 
-	map<transformed extends listable<MappedTypeProp>>(
+	map<
+		transformed extends listable<MappedTypeProp>,
+		r = Type<constructMapped<t, transformed>, $>
+	>(
 		// v isn't used directly here but helps TS infer a precise type for transformed
 		flatMapEntry: (entry: typePropOf<t, $>) => transformed
-	): Type<constructMapped<t, transformed>, $>
+	): r extends infer _ ? _ : never
 
 	/**
 	 * List of property info of this `Type<object>`.

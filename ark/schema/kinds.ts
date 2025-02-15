@@ -92,7 +92,8 @@ $ark.defaultConfig = withAlphabetizedKeys(
 			clone: deepClone,
 			onUndeclaredKey: "ignore",
 			numberAllowsNaN: false,
-			dateAllowsInvalid: false
+			dateAllowsInvalid: false,
+			onFail: null
 		} satisfies Omit<ResolvedConfig, NodeKind>
 	) as never
 )

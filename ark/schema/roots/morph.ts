@@ -52,6 +52,11 @@ export declare namespace Morph {
 		}> {}
 
 	export type Node = MorphNode
+
+	export type In<morph extends Morph> = morph extends Morph<infer i> ? i : never
+
+	export type Out<morph extends Morph> =
+		morph extends Morph<never, infer o> ? o : never
 }
 
 export type Morph<i = any, o = unknown> = (In: i, ctx: Traversal) => o
@@ -152,7 +157,14 @@ export class MorphNode extends BaseRoot<Morph.Declaration> {
 		this.lastMorphIfNode ?
 			Object.assign(this.referencesById, this.lastMorphIfNode.referencesById) &&
 			this.lastMorphIfNode.out
-		:	undefined;
+		:	undefined
+
+	get shallowMorphs(): array<Morph> {
+		// if the morph input is a union, it should not contain any other shallow morphs
+		return Array.isArray(this.inner.in?.shallowMorphs) ?
+				[...this.inner.in.shallowMorphs, ...this.morphs]
+			:	this.morphs
+	}
 
 	override get in(): BaseRoot {
 		return (

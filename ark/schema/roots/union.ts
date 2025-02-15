@@ -7,15 +7,18 @@ import {
 	isArray,
 	jsTypeOfDescriptions,
 	printable,
+	range,
 	throwParseError,
+	unset,
 	type JsTypeOf,
 	type JsonStructure,
-	type Key,
 	type SerializedPrimitive,
 	type array,
 	type show
 } from "@ark/util"
 import type { NodeSchema, RootSchema, nodeOfKind } from "../kinds.ts"
+import type { BaseNode } from "../node.ts"
+import type { BaseScope } from "../scope.ts"
 import {
 	compileLiteralPropAccess,
 	compileSerializedValue,
@@ -45,7 +48,11 @@ import {
 	registeredReference,
 	type RegisteredReference
 } from "../shared/registry.ts"
-import type { TraverseAllows, TraverseApply } from "../shared/traversal.ts"
+import {
+	Traversal,
+	type TraverseAllows,
+	type TraverseApply
+} from "../shared/traversal.ts"
 import { hasArkKind } from "../shared/utils.ts"
 import type { Domain } from "./domain.ts"
 import type { Morph } from "./morph.ts"
@@ -260,6 +267,24 @@ export class UnionNode extends BaseRoot<Union.Declaration> {
 		expressBranches
 	)
 
+	createBranchedOptimisticRootApply(): BaseNode["rootApply"] {
+		return (data, onFail) => {
+			const optimisticResult = this.traverseOptimistic(data)
+			if (optimisticResult !== unset) return optimisticResult
+
+			const ctx = new Traversal(data, this.$.resolvedConfig)
+			this.traverseApply(data, ctx)
+			return ctx.finalize(onFail)
+		}
+	}
+
+	get shallowMorphs(): array<Morph> {
+		return this.branches.reduce(
+			(morphs, branch) => appendUnique(morphs, branch.shallowMorphs),
+			[] as Morph[]
+		)
+	}
+
 	get shortDescription(): string {
 		return this.distribute(branch => branch.shortDescription, describeBranches)
 	}
@@ -285,13 +310,26 @@ export class UnionNode extends BaseRoot<Union.Declaration> {
 			ctx.pushBranch()
 			this.branches[i].traverseApply(data, ctx)
 			if (!ctx.hasError()) {
-				if (this.branches[i].includesMorph)
+				if (this.branches[i].includesTransform)
 					return ctx.queuedMorphs.push(...ctx.popBranch()!.queuedMorphs)
 				return ctx.popBranch()
 			}
 			errors.push(ctx.popBranch()!.error!)
 		}
 		ctx.errorFromNodeContext({ code: "union", errors, meta: this.meta })
+	}
+
+	traverseOptimistic = (data: unknown): unknown => {
+		for (let i = 0; i < this.branches.length; i++) {
+			const branch = this.branches[i]
+			if ((branch.traverseAllows as any)(data)) {
+				if (branch.contextFreeMorph) return branch.contextFreeMorph(data)
+				// if we're calling this function and the matching branch didn't have
+				// a context-free morph, it shouldn't have morphs at all
+				return data
+			}
+		}
+		return unset
 	}
 
 	compile(js: NodeCompiler): void {
@@ -314,18 +352,31 @@ export class UnionNode extends BaseRoot<Union.Declaration> {
 
 		const caseKeys = Object.keys(cases)
 
+		const { optimistic } = js
+		// only the first layer can be optimistic
+		js.optimistic = false
+
 		js.block(`switch(${condition})`, () => {
 			for (const k in cases) {
 				const v = cases[k]
 				const caseCondition = k === "default" ? k : `case ${k}`
-				js.line(`${caseCondition}: return ${v === true ? v : js.invoke(v)}`)
+				js.line(
+					`${caseCondition}: return ${
+						v === true ?
+							optimistic ? js.data
+							:	v
+						: optimistic ?
+							`${js.invoke(v)} ? ${v.contextFreeMorph ? `${registeredReference(v.contextFreeMorph)}(${js.data})` : js.data} : "${unset}"`
+						:	js.invoke(v)
+					}`
+				)
 			}
 
 			return js
 		})
 
 		if (js.traversalKind === "Allows") {
-			js.return(false)
+			js.return(optimistic ? `"${unset}"` : false)
 			return
 		}
 
@@ -341,7 +392,7 @@ export class UnionNode extends BaseRoot<Union.Declaration> {
 		)
 
 		const serializedPathSegments = this.discriminant.path.map(k =>
-			typeof k === "string" ? JSON.stringify(k) : registeredReference(k)
+			typeof k === "symbol" ? registeredReference(k) : JSON.stringify(k)
 		)
 
 		const serializedExpected = JSON.stringify(expected)
@@ -369,7 +420,7 @@ export class UnionNode extends BaseRoot<Union.Declaration> {
 					.line(js.invoke(branch))
 					.if("!ctx.hasError()", () =>
 						js.return(
-							branch.includesMorph ?
+							branch.includesTransform ?
 								"ctx.queuedMorphs.push(...ctx.popBranch().queuedMorphs)"
 							:	"ctx.popBranch()"
 						)
@@ -380,10 +431,21 @@ export class UnionNode extends BaseRoot<Union.Declaration> {
 				`ctx.errorFromNodeContext({ code: "union", errors, meta: ${this.compiledMeta} })`
 			)
 		} else {
+			const { optimistic } = js
+			// only the first layer can be optimistic
+			js.optimistic = false
 			this.branches.forEach(branch =>
-				js.if(`${js.invoke(branch)}`, () => js.return(true))
+				js.if(`${js.invoke(branch)}`, () =>
+					js.return(
+						optimistic ?
+							branch.contextFreeMorph ?
+								`${registeredReference(branch.contextFreeMorph)}(${js.data})`
+							:	js.data
+						:	true
+					)
+				)
 			)
-			js.return(false)
+			js.return(optimistic ? `"${unset}"` : false)
 		}
 	}
 
@@ -440,76 +502,278 @@ export class UnionNode extends BaseRoot<Union.Declaration> {
 						candidates.push({
 							kind: entry.kind,
 							cases: {
-								[lSerialized]: [l],
-								[rSerialized]: [r]
+								[lSerialized]: {
+									branchIndices: [lIndex],
+									condition: entry.l as never
+								},
+								[rSerialized]: {
+									branchIndices: [rIndex],
+									condition: entry.r as never
+								}
 							},
 							path: entry.path
 						})
 					} else {
-						matching.cases[lSerialized] = appendUnique(
-							matching.cases[lSerialized],
-							l
-						)
+						if (matching.cases[lSerialized]) {
+							matching.cases[lSerialized].branchIndices = appendUnique(
+								matching.cases[lSerialized].branchIndices,
+								lIndex
+							)
+						} else {
+							matching.cases[lSerialized] ??= {
+								branchIndices: [lIndex],
+								condition: entry.l as never
+							}
+						}
 
-						matching.cases[rSerialized] = appendUnique(
-							matching.cases[rSerialized],
-							r
-						)
+						if (matching.cases[rSerialized]) {
+							matching.cases[rSerialized].branchIndices = appendUnique(
+								matching.cases[rSerialized].branchIndices,
+								rIndex
+							)
+						} else {
+							matching.cases[rSerialized] ??= {
+								branchIndices: [rIndex],
+								condition: entry.r as never
+							}
+						}
 					}
 				}
 			}
 		}
 
-		const best = candidates
-			.sort((l, r) => Object.keys(l.cases).length - Object.keys(r.cases).length)
-			.at(-1)
+		const orderedCandidates =
+			this.ordered ? orderCandidates(candidates, this.branches) : candidates
 
-		if (!best) return null
+		if (!orderedCandidates.length) return null
 
-		let defaultBranches = [...this.branches]
+		const ctx = createCaseResolutionContext(orderedCandidates, this)
 
-		const bestCtx: DiscriminantContext = {
-			kind: best.kind,
-			path: best.path,
-			optionallyChainedPropString: optionallyChainPropString(best.path)
-		}
+		const cases: DiscriminatedCases = {}
 
-		const cases = flatMorph(best.cases, (k, caseBranches) => {
-			const prunedBranches: BaseRoot[] = []
-			defaultBranches = defaultBranches.filter(n => !caseBranches.includes(n))
-			for (const branch of caseBranches) {
-				const pruned = pruneDiscriminant(branch, bestCtx)
-				// if any branch of the union has no constraints (i.e. is unknown)
-				// return it right away
-				if (pruned === null) return [k, true as const]
-				prunedBranches.push(pruned)
+		for (const k in ctx.best.cases) {
+			const resolution = resolveCase(ctx, k)
+
+			if (resolution === null) {
+				cases[k] = true
+				continue
 			}
 
+			// if all the branches ended up back in pruned, we'd loop if we continued
+			// so just bail out- nothing left to discriminate
+			if (resolution.length === this.branches.length) return null
+
+			if (this.ordered) {
+				// ensure the original order of the pruned branches is preserved
+				resolution.sort((l, r) => l.originalIndex - r.originalIndex)
+			}
+
+			const branches = resolution.map(entry => entry.branch)
+
 			const caseNode =
-				prunedBranches.length === 1 ?
-					prunedBranches[0]
-				:	this.$.node("union", prunedBranches)
+				branches.length === 1 ?
+					branches[0]
+				:	this.$.node(
+						"union",
+						this.ordered ? { branches, ordered: true } : branches
+					)
 
 			Object.assign(this.referencesById, caseNode.referencesById)
+			cases[k] = caseNode
+		}
 
-			return [k, caseNode]
-		})
-
-		if (defaultBranches.length) {
-			cases.default = this.$.node("union", defaultBranches, {
-				prereduced: true
-			})
+		if (ctx.defaultEntries.length) {
+			// we don't have to worry about order here as it is always preserved
+			// within defaultEntries
+			const branches = ctx.defaultEntries.map(entry => entry.branch)
+			cases.default = this.$.node(
+				"union",
+				this.ordered ? { branches, ordered: true } : branches,
+				{
+					prereduced: true
+				}
+			)
 
 			Object.assign(this.referencesById, cases.default.referencesById)
 		}
 
-		return Object.assign(bestCtx, {
+		return Object.assign(ctx.location, {
 			cases
 		})
 	}
 }
+// New context object to carry discrimination state between functions.
+type CaseResolutionContext = {
+	best: DiscriminantCandidate
+	location: DiscriminantLocation
+	defaultEntries: BranchEntry[]
+	node: Union.Node
+}
 
-const optionallyChainPropString = (path: Key[]): string =>
+type BranchEntry = {
+	originalIndex: number
+	branch: BaseRoot
+}
+
+const createCaseResolutionContext = (
+	orderedCandidates: DiscriminantCandidate[],
+	node: Union.Node
+): CaseResolutionContext => {
+	const best = orderedCandidates.sort(
+		(l, r) => Object.keys(r.cases).length - Object.keys(l.cases).length
+	)[0]
+
+	const location: DiscriminantLocation = {
+		kind: best.kind,
+		path: best.path,
+		optionallyChainedPropString: optionallyChainPropString(best.path)
+	}
+
+	const defaultEntries = node.branches.map(
+		(branch, originalIndex): BranchEntry => ({
+			originalIndex,
+			branch
+		})
+	)
+
+	return {
+		best,
+		location,
+		defaultEntries,
+		node
+	}
+}
+
+const resolveCase = (
+	ctx: CaseResolutionContext,
+	key: CaseKey
+): BranchEntry[] | null => {
+	const caseCtx = ctx.best.cases[key]
+	const discriminantNode = discriminantCaseToNode(
+		caseCtx.condition,
+		ctx.location.path,
+		ctx.node.$
+	)
+
+	let resolvedEntries: BranchEntry[] | null = []
+	const nextDefaults: BranchEntry[] = []
+
+	for (let i = 0; i < ctx.defaultEntries.length; i++) {
+		const entry = ctx.defaultEntries[i]
+		if (caseCtx.branchIndices.includes(entry.originalIndex)) {
+			const pruned = pruneDiscriminant(
+				ctx.node.branches[entry.originalIndex],
+				ctx.location
+			)
+			if (pruned === null) {
+				// if any branch of the union has no constraints (i.e. is
+				// unknown), the others won't affect the resolution type, but could still
+				// remove additional cases from defaultEntries
+				resolvedEntries = null
+			} else {
+				resolvedEntries?.push({
+					originalIndex: entry.originalIndex,
+					branch: pruned
+				})
+			}
+		} else if (
+			// we shouldn't need a special case for alias to avoid the below
+			// once alias resolution issues are improved:
+			// https://github.com/arktypeio/arktype/issues/1026
+			entry.branch.hasKind("alias") &&
+			discriminantNode.hasKind("domain") &&
+			discriminantNode.domain === "object"
+		)
+			resolvedEntries?.push(entry)
+		else {
+			if (entry.branch.in.overlaps(discriminantNode)) {
+				// include cases where an object not including the
+				// discriminant path might have that value present as an undeclared key
+				const overlapping = pruneDiscriminant(entry.branch, ctx.location)!
+				resolvedEntries?.push({
+					originalIndex: entry.originalIndex,
+					branch: overlapping
+				})
+			}
+			nextDefaults.push(entry)
+		}
+	}
+
+	ctx.defaultEntries = nextDefaults
+	return resolvedEntries
+}
+
+const orderCandidates = (
+	candidates: DiscriminantCandidate[],
+	originalBranches: readonly Union.ChildNode[]
+): DiscriminantCandidate[] => {
+	const viableCandidates = candidates.filter(candidate => {
+		const caseGroups = Object.values(candidate.cases).map(
+			caseCtx => caseCtx.branchIndices
+		)
+
+		// compare each group against all subsequent groups.
+		for (let i = 0; i < caseGroups.length - 1; i++) {
+			const currentGroup = caseGroups[i]
+			for (let j = i + 1; j < caseGroups.length; j++) {
+				const nextGroup = caseGroups[j]
+
+				// for each group pair, check for branches whose order was reversed
+				for (const currentIndex of currentGroup) {
+					for (const nextIndex of nextGroup) {
+						if (currentIndex > nextIndex) {
+							if (
+								originalBranches[currentIndex].overlaps(
+									originalBranches[nextIndex]
+								)
+							) {
+								// if the order was not preserved and the branches overlap,
+								// this is not a viable discriminant as it cannot guarantee the same behavior
+								return false
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// branch groups preserved order for non-disjoint pairs and is viable
+		return true
+	})
+
+	return viableCandidates
+}
+
+const discriminantCaseToNode = (
+	caseDiscriminant: CaseDiscriminant,
+	path: PropertyKey[],
+	$: BaseScope
+): BaseRoot => {
+	let node: BaseRoot =
+		caseDiscriminant === "undefined" ? $.node("unit", { unit: undefined })
+		: caseDiscriminant === "null" ? $.node("unit", { unit: null })
+		: caseDiscriminant === "boolean" ? $.units([true, false])
+		: caseDiscriminant
+	for (let i = path.length - 1; i >= 0; i--) {
+		const key = path[i]
+		node = $.node(
+			"intersection",
+			typeof key === "number" ?
+				{
+					proto: "Array",
+					// create unknown for preceding elements (could be optimized with safe imports)
+					sequence: [...range(key).map(_ => ({})), node]
+				}
+			:	{
+					domain: "object",
+					required: [{ key, value: node }]
+				}
+		)
+	}
+	return node
+}
+
+const optionallyChainPropString = (path: PropertyKey[]): string =>
 	path.reduce<string>(
 		(acc, k) => acc + compileLiteralPropAccess(k, true),
 		"data"
@@ -682,15 +946,19 @@ export const reduceBranches = ({
 }
 
 const assertDeterminateOverlap = (l: Union.ChildNode, r: Union.ChildNode) => {
+	if (!l.includesTransform && !r.includesTransform) return
+
+	if (!arrayEquals(l.shallowMorphs as Morph[], r.shallowMorphs as Morph[])) {
+		throwParseError(
+			writeIndiscriminableMorphMessage(l.expression, r.expression)
+		)
+	}
+
 	if (
-		(l.includesMorph || r.includesMorph) &&
-		(!arrayEquals(l.shallowMorphs, r.shallowMorphs, {
-			isEqual: (l, r) => l.hasEqualMorphs(r)
-		}) ||
-			!arrayEquals(l.flatMorphs, r.flatMorphs, {
-				isEqual: (l, r) =>
-					l.propString === r.propString && l.node.hasEqualMorphs(r.node)
-			}))
+		!arrayEquals(l.flatMorphs, r.flatMorphs, {
+			isEqual: (l, r) =>
+				l.propString === r.propString && l.node.hasEqualMorphs(r.node)
+		})
 	) {
 		throwParseError(
 			writeIndiscriminableMorphMessage(l.expression, r.expression)
@@ -701,26 +969,33 @@ const assertDeterminateOverlap = (l: Union.ChildNode, r: Union.ChildNode) => {
 export type CaseKey<kind extends DiscriminantKind = DiscriminantKind> =
 	DiscriminantKind extends kind ? string : DiscriminantKinds[kind] | "default"
 
-type DiscriminantContext<kind extends DiscriminantKind = DiscriminantKind> = {
-	path: Key[]
+type DiscriminantLocation<kind extends DiscriminantKind = DiscriminantKind> = {
+	path: PropertyKey[]
 	optionallyChainedPropString: string
 	kind: kind
 }
 
 export interface Discriminant<kind extends DiscriminantKind = DiscriminantKind>
-	extends DiscriminantContext<kind> {
+	extends DiscriminantLocation<kind> {
 	cases: DiscriminatedCases<kind>
 }
 
 type DiscriminantCandidate<kind extends DiscriminantKind = DiscriminantKind> = {
-	path: Key[]
+	path: PropertyKey[]
 	kind: kind
 	cases: CandidateCases<kind>
 }
 
 type CandidateCases<kind extends DiscriminantKind = DiscriminantKind> = {
-	[caseKey in CaseKey<kind>]: BaseRoot[]
+	[caseKey in CaseKey<kind>]: CaseContext
 }
+
+export type CaseContext = {
+	branchIndices: number[]
+	condition: nodeOfKind<DiscriminantKind> | Domain.Enumerable
+}
+
+export type CaseDiscriminant = nodeOfKind<DiscriminantKind> | Domain.Enumerable
 
 export type DiscriminatedCases<
 	kind extends DiscriminantKind = DiscriminantKind
@@ -737,7 +1012,7 @@ export type DiscriminantKind = show<keyof DiscriminantKinds>
 
 export const pruneDiscriminant = (
 	discriminantBranch: BaseRoot,
-	discriminantCtx: DiscriminantContext
+	discriminantCtx: DiscriminantLocation
 ): BaseRoot | null =>
 	discriminantBranch.transform(
 		(nodeKind, inner) => {
@@ -748,7 +1023,7 @@ export const pruneDiscriminant = (
 		{
 			shouldTransform: (node, ctx) => {
 				// safe to cast here as index nodes are never discriminants
-				const propString = optionallyChainPropString(ctx.path as Key[])
+				const propString = optionallyChainPropString(ctx.path as PropertyKey[])
 
 				if (!discriminantCtx.optionallyChainedPropString.startsWith(propString))
 					return false

@@ -114,7 +114,8 @@ contextualize(() => {
 					"true",
 					"undefined",
 					"unknown",
-					"|"
+					"|",
+					"|>"
 				]
 			})
 		})

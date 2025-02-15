@@ -215,7 +215,7 @@ contextualize(() => {
 	})
 
 	it("errors on cyclic", () => {
-		attest(() => $ark.intrinsic.json.toJsonSchema()).throws(
+		attest(() => $ark.intrinsic.jsonObject.toJsonSchema()).throws(
 			JsonSchema.writeUnjsonifiableMessage("jsonObject", "cyclic")
 		)
 	})

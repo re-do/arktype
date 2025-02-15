@@ -69,7 +69,7 @@ export const intersectOrPipeNodes: InternalNodeIntersection<IntersectionContext>
 		}
 
 		const isPureIntersection =
-			!ctx.pipe || (!l.includesMorph && !r.includesMorph)
+			!ctx.pipe || (!l.includesTransform && !r.includesTransform)
 
 		if (isPureIntersection && l.equals(r)) return l
 
@@ -117,7 +117,7 @@ const _pipeNodes = (
 	r: nodeOfKind<RootKind>,
 	ctx: IntersectionContext
 ) =>
-	l.includesMorph || r.includesMorph ?
+	l.includesTransform || r.includesTransform ?
 		ctx.invert ?
 			pipeMorphed(r, l, ctx)
 		:	pipeMorphed(l, r, ctx)

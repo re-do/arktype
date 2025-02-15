@@ -365,7 +365,6 @@ export type DescriptionWriter<kind extends NodeKind = NodeKind> = (
 ) => string
 
 export interface UnknownAttachments {
-	alias?: string
 	readonly kind: NodeKind
 	readonly impl: UnknownNodeImplementation
 	readonly id: NodeId

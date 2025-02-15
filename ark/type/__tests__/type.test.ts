@@ -1,7 +1,7 @@
 import { attest, contextualize } from "@ark/attest"
 import { flatMorph } from "@ark/util"
 import { Generic, keywords, scope, Type, type, type Ark } from "arktype"
-import { AssertionError } from "node:assert"
+import * as assert from "node:assert/strict"
 
 contextualize(() => {
 	it("root discriminates", () => {
@@ -47,7 +47,7 @@ contextualize(() => {
 			attest((e as AggregateError).errors instanceof type.errors)
 			return
 		}
-		throw new AssertionError({ message: "Expected to throw" })
+		throw new assert.AssertionError({ message: "Expected to throw" })
 	})
 
 	it("assert", () => {
@@ -58,11 +58,13 @@ contextualize(() => {
 		)
 	})
 
-	it("is treated as contravariant", () => {
+	it("is treated as covariant", () => {
 		type("1") satisfies Type<number>
 
-		// currently treated as bivariant here, should be error
-		type("1") satisfies Type<string>
+		// @ts-expect-error
+		attest(() => type("1") satisfies Type<string>).type.errors(
+			"missing the following properties from type 'Type<string, {}>'"
+		)
 
 		// errors correctly if t is declared as its own type param
 		const accept = <t extends string>(t: Type<t>) => t
@@ -72,6 +74,27 @@ contextualize(() => {
 		// @ts-expect-error
 		attest(() => accept(t)).type.errors(
 			"Argument of type 'Type<1, {}>' is not assignable to parameter of type 'Type<string, {}>'"
+		)
+	})
+
+	// these assignability tests seem to contribute a ton of instantiations but
+	// maybe not much check time? needs more investigation
+
+	it("base signature obeys assignability rules", () => {
+		type("'foo'[]") satisfies Type<string[]>
+
+		// @ts-expect-error
+		attest(() => type("number[]") satisfies Type<string[]>).type.errors(
+			"Type 'number' is not assignable to type 'string'"
+		)
+	})
+
+	it("args signature obeys assignability rules", () => {
+		type("'foo'", "[]") satisfies Type<string[]>
+
+		// @ts-expect-error
+		attest(() => type("number", "[]") satisfies Type<string[]>).type.errors(
+			"Type 'number' is not assignable to type 'string'"
 		)
 	})
 
@@ -198,5 +221,26 @@ contextualize(() => {
 		attest(() => assert(5)).throws.snap(
 			"AggregateError: must be a string (was a number)"
 		)
+	})
+
+	it("toString()", () => {
+		// represent a variety of structures to ensure it is correctly composed
+		const t = type({
+			"[string]": "number",
+			a: "1",
+			"b?": "2",
+			c: ["0 < string < 5", "boolean?", "...", "number[]"],
+			d: [
+				["string", "=>", s => s.length],
+				"0 < number % 2 < 100",
+				"...",
+				"bigint[]",
+				"(/^a.*z$/ & string.lower)[]"
+			]
+		})
+		attest(t.expression).snap(
+			"{ [string]: number, a: 1, c: [string <= 4 & >= 1, boolean?, ...number[]], d: [(In: string) => Out<unknown>, number % 2 & < 100 & > 0, ...bigint[], (In: string /^a.*z$/) => Out<string /^[a-z]*$/>[]], b?: 2 }"
+		)
+		attest(`${t}`).equals(`Type<${t.expression}>`)
 	})
 })

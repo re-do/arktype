@@ -53,6 +53,7 @@ import type {
 	UndeclaredKeyBehavior
 } from "../structure/structure.ts"
 import type { Domain } from "./domain.ts"
+import type { Morph } from "./morph.ts"
 import type { Proto } from "./proto.ts"
 import { BaseRoot } from "./root.ts"
 import { defineRightwardIntersections } from "./utils.ts"
@@ -295,7 +296,13 @@ export class IntersectionNode extends BaseRoot<Intersection.Declaration> {
 
 	structure: Structure.Node | undefined = this.inner.structure
 
-	expression: string = describeIntersection(this)
+	expression: string = writeIntersectionExpression(this)
+
+	get shallowMorphs(): array<Morph> {
+		return this.inner.structure?.structuralMorph ?
+				[this.inner.structure.structuralMorph]
+			:	[]
+	}
 
 	get shortDescription(): string {
 		return this.basis?.shortDescription ?? "present"
@@ -385,10 +392,10 @@ export const Intersection = {
 	Node: IntersectionNode
 }
 
-const describeIntersection = (node: Intersection.Node) => {
+const writeIntersectionExpression = (node: Intersection.Node) => {
 	let expression =
 		node.structure?.expression ||
-		`${node.basis ? node.basis.nestableExpression + " " : ""}${node.refinements.join(" & ")}` ||
+		`${node.basis ? node.basis.nestableExpression + " " : ""}${node.refinements.map(n => n.expression).join(" & ")}` ||
 		"unknown"
 	if (expression === "Array == 0") expression = "[]"
 	return expression

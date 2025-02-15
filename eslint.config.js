@@ -1,20 +1,14 @@
 // @ts-check
-
 import tseslint from "typescript-eslint"
 
 /** These actually have types but I'm not sure how to enable esModuleInterop
  * with allowJs in the root tsconfig, which dramatically slows typechecking */
-
-// @ts-expect-error
 import eslint from "@eslint/js"
-// @ts-expect-error
+// @ts-ignore
 import importPlugin from "eslint-plugin-import"
 
 /** These actually don't have types as of now */
-
-// @ts-expect-error
 import onlyWarn from "eslint-plugin-only-warn"
-// @ts-expect-error
 import preferArrowFunctions from "eslint-plugin-prefer-arrow-functions"
 
 export default tseslint.config(
@@ -38,6 +32,7 @@ export default tseslint.config(
 		plugins: {
 			"@typescript-eslint": tseslint.plugin,
 			import: importPlugin,
+			// @ts-ignore
 			"only-warn": onlyWarn,
 			"prefer-arrow-functions": preferArrowFunctions
 		},
@@ -207,7 +202,10 @@ export default tseslint.config(
 						}
 					]
 				}
-			]
+			],
+			// function foo is particularly useful for defining a named function inline e.g. to
+			// be passed to a morph so it can be uniquely snapshotted
+			"prefer-arrow-functions/prefer-arrow-functions": "off"
 		}
 	}
 )

@@ -98,8 +98,9 @@ contextualize(() => {
 			const boxOf = type("<t>", {
 				box: "t"
 			})
+
 			const t = boxOf({
-				a: "string|this"
+				a: "string | this"
 			})
 
 			attest(t.t).type.toString.snap(`{ box: { a: string | cyclic } }`)

@@ -4,7 +4,20 @@ title: Primitives
 
 ## string
 
-A full list of string keywords can be found [here](/docs/keywords#string).
+### keywords
+
+The following keywords can be referenced in any definition, e.g.:
+
+```ts
+const email = type("string.email")
+
+const user = type({
+	data: "string.json.parse",
+	ids: "string.uuid.v4[]"
+})
+```
+
+<StringKeywordTable />
 
 ### literals [#string-literals]
 
@@ -93,7 +106,18 @@ const range = type({
 
 ## number
 
-A full list of number keywords can be found [here](/docs/keywords#number).
+### keywords
+
+The following keywords can be referenced in any definition, e.g.:
+
+```ts
+const user = type({
+	createdAt: "number.epoch",
+	age: "number.integer >= 0"
+})
+```
+
+<NumberKeywordTable />
 
 ### literals [#number-literals]
 
@@ -331,8 +355,8 @@ The `"null"` keyword can be used to allow the exact value `null`, generally as p
 	<SyntaxTab string>
 
 ```ts
-const nullable = type({
-	requiredKey: "number | null"
+const myObj = type({
+	foo: "number | null"
 })
 ```
 
@@ -341,8 +365,8 @@ const nullable = type({
     <SyntaxTab fluent>
 
 ```ts
-const nullable = type({
-	requiredKey: type.number.or(type.null)
+const myObj = type({
+	foo: type.number.or(type.null)
 })
 ```
 
@@ -359,7 +383,8 @@ The `"undefined"` keyword can be used to allow the exact value `undefined`, gene
 
 ```ts
 const myObj = type({
-	requiredKey: "number | undefined"
+	requiredKey: "number | undefined",
+	"optionalKey?": "number | undefined"
 })
 ```
 
@@ -369,7 +394,8 @@ const myObj = type({
 
 ```ts
 const myObj = type({
-	requiredKey: type.number.or(type.undefined)
+	requiredKey: type.number.or(type.undefined),
+	optionalKey: type.number.or(type.undefined).optional()
 })
 ```
 

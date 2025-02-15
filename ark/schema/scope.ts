@@ -15,11 +15,17 @@ import {
 	type array,
 	type conform,
 	type flattenListable,
+	type intersectUnion,
 	type listable,
 	type noSuggest,
-	type satisfy
+	type satisfy,
+	type show
 } from "@ark/util"
-import { mergeConfigs, type ArkConfig, type ResolvedConfig } from "./config.ts"
+import {
+	mergeConfigs,
+	type ArkSchemaConfig,
+	type ResolvedConfig
+} from "./config.ts"
 import {
 	GenericRoot,
 	LazyGenericBody,
@@ -85,6 +91,30 @@ export type resolvableReferenceIn<$> = {
 export type resolveReference<reference extends resolvableReferenceIn<$>, $> =
 	reference extends keyof $ ? $[reference] : $[`#${reference}` & keyof $]
 
+export type flatResolutionsOf<$> = show<
+	intersectUnion<
+		resolvableReferenceIn<$> extends infer k ?
+			k extends keyof $ & string ?
+				resolutionsOfReference<k, $[k]>
+			:	unknown
+		:	unknown
+	>
+>
+
+type resolutionsOfReference<k extends string, v> =
+	[v] extends [{ [arkKind]: "module" }] ?
+		[v] extends [anyOrNever] ?
+			{ [_ in k]: v }
+		:	prefixKeys<flatResolutionsOf<v>, k> & {
+				[innerKey in keyof v as innerKey extends "root" ? k
+				:	never]: v[innerKey]
+			}
+	:	{ [_ in k]: v }
+
+type prefixKeys<o, prefix extends string> = {
+	[k in keyof o & string as `${prefix}.${k}`]: o[k]
+} & unknown
+
 export type PrivateDeclaration<key extends string = string> = `#${key}`
 
 export type InternalResolution = BaseRoot | GenericRoot | InternalModule
@@ -120,20 +150,20 @@ export type writeDuplicateAliasError<alias extends string> =
 
 export type AliasDefEntry = [name: string, defValue: unknown]
 
-const scopesById: Record<string, BaseScope | undefined> = {}
+const scopesByName: Record<string, BaseScope | undefined> = {}
 
 export type GlobalOnlyConfigOptionName = satisfy<
-	keyof ArkConfig,
+	keyof ArkSchemaConfig,
 	"dateAllowsInvalid" | "numberAllowsNaN" | "onUndeclaredKey"
 >
 
 export interface ScopeOnlyConfigOptions {
-	ambient?: boolean | string
+	name?: string
 	prereducedAliases?: boolean
 }
 
-export interface ArkScopeConfig
-	extends Omit<ArkConfig, GlobalOnlyConfigOptionName>,
+export interface ArkSchemaScopeConfig
+	extends Omit<ArkSchemaConfig, GlobalOnlyConfigOptionName>,
 		ScopeOnlyConfigOptions {}
 
 export interface ResolvedScopeConfig
@@ -144,10 +174,74 @@ $ark.ambient ??= {} as never
 
 let rawUnknownUnion: UnionNode | undefined
 
+const precompile = (references: readonly BaseNode[]): void =>
+	bindPrecompilation(references, writePrecompilation(references))
+
+const bindPrecompilation = (
+	references: readonly BaseNode[],
+	precompilation: string
+): void => {
+	const compiledTraversals = instantiatePrecompilation(precompilation)
+	for (const node of references) {
+		if (node.precompilation) {
+			// if node has already been bound to another scope or anonymous type, don't rebind it
+			continue
+		}
+		node.traverseAllows =
+			compiledTraversals[`${node.id}Allows`].bind(compiledTraversals)
+		if (node.isRoot() && !node.allowsRequiresContext) {
+			// if the reference doesn't require context, we can assign over
+			// it directly to avoid having to initialize it
+			node.allows = node.traverseAllows as never
+		}
+		node.traverseApply =
+			compiledTraversals[`${node.id}Apply`].bind(compiledTraversals)
+
+		if (compiledTraversals[`${node.id}Optimistic`]) {
+			;(node as UnionNode).traverseOptimistic =
+				compiledTraversals[`${node.id}Optimistic`].bind(compiledTraversals)
+		}
+		node.precompilation = precompilation
+	}
+}
+
+const instantiatePrecompilation = (precompilation: string) =>
+	new CompiledFunction().return(precompilation).compile<
+		() => {
+			[k: `${string}Allows`]: TraverseAllows
+			[k: `${string}Apply`]: TraverseApply
+			[k: `${string}Optimistic`]: (data: unknown) => unknown
+		}
+	>()()
+
+const writePrecompilation = (references: readonly BaseNode[]) =>
+	references.reduce((js, node) => {
+		const allowsCompiler = new NodeCompiler({ kind: "Allows" }).indent()
+		node.compile(allowsCompiler)
+		const allowsJs = allowsCompiler.write(`${node.id}Allows`)
+
+		const applyCompiler = new NodeCompiler({ kind: "Apply" }).indent()
+		node.compile(applyCompiler)
+		const applyJs = applyCompiler.write(`${node.id}Apply`)
+
+		const result = `${js}${allowsJs},\n${applyJs},\n`
+
+		if (!node.hasKind("union")) return result
+
+		const optimisticCompiler = new NodeCompiler({
+			kind: "Allows",
+			optimistic: true
+		}).indent()
+		node.compile(optimisticCompiler)
+		const optimisticJs = optimisticCompiler.write(`${node.id}Optimistic`)
+
+		return `${result}${optimisticJs},\n`
+	}, "{\n") + "}"
+
 export abstract class BaseScope<$ extends {} = {}> {
-	readonly config: ArkScopeConfig
+	readonly config: ArkSchemaScopeConfig
 	readonly resolvedConfig: ResolvedScopeConfig
-	readonly id = `${Object.keys(scopesById).length}$`
+	readonly name: string
 
 	get [arkKind](): "scope" {
 		return "scope"
@@ -168,10 +262,18 @@ export abstract class BaseScope<$ extends {} = {}> {
 		/** The set of names defined at the root-level of the scope mapped to their
 		 * corresponding definitions.**/
 		def: Record<string, unknown>,
-		config?: ArkScopeConfig
+		config?: ArkSchemaScopeConfig
 	) {
 		this.config = mergeConfigs($ark.config, config)
 		this.resolvedConfig = mergeConfigs($ark.resolvedConfig, config)
+
+		this.name =
+			this.resolvedConfig.name ??
+			`anonymousScope${Object.keys(scopesByName).length}`
+		if (this.name in scopesByName)
+			throwParseError(`A Scope already named ${this.name} already exists`)
+		scopesByName[this.name] = this
+
 		const aliasEntries = Object.entries(def).map(entry =>
 			this.preparseOwnAliasEntry(...entry)
 		)
@@ -225,8 +327,6 @@ export abstract class BaseScope<$ extends {} = {}> {
 			{},
 			{ prereduced: true }
 		)
-
-		scopesById[this.id] = this
 	}
 
 	protected cacheGetter<name extends keyof this>(
@@ -517,18 +617,6 @@ export abstract class BaseScope<$ extends {} = {}> {
 
 			this.lazyResolutions.forEach(node => node.resolution)
 
-			if (this.resolvedConfig.ambient === true)
-				// spread all exports to ambient
-				Object.assign($ark.ambient as {}, this._exports)
-			else if (typeof this.resolvedConfig.ambient === "string") {
-				// add exports as a subscope with the config value as a name
-				Object.assign($ark.ambient as {}, {
-					[this.resolvedConfig.ambient]: new RootModule({
-						...this._exports
-					})
-				})
-			}
-
 			this._exportedResolutions = resolutionsOfModule(this, this._exports)
 
 			this._json = resolutionsToJson(this._exportedResolutions)
@@ -718,7 +806,7 @@ export type SchemaScopeParser = <const aliases>(
 			RootSchema | PreparsedNodeResolution
 		>
 	},
-	config?: ArkScopeConfig
+	config?: ArkSchemaScopeConfig
 ) => BaseScope<instantiateAliases<aliases>>
 
 export const schemaScope: SchemaScopeParser = (aliases, config) =>
@@ -787,53 +875,6 @@ export const writeMissingSubmoduleAccessMessage = <name extends string>(
 
 export type writeMissingSubmoduleAccessMessage<name extends string> =
 	`Reference to submodule '${name}' must specify an alias`
-
-const precompile = (references: readonly BaseNode[]): void =>
-	bindPrecompilation(references, writePrecompilation(references))
-
-const bindPrecompilation = (
-	references: readonly BaseNode[],
-	precompilation: string
-): void => {
-	const compiledTraversals = instantiatePrecompilation(precompilation)
-	for (const node of references) {
-		if (node.precompilation) {
-			// if node has already been bound to another scope or anonymous type, don't rebind it
-			continue
-		}
-		node.traverseAllows =
-			compiledTraversals[`${node.id}Allows`].bind(compiledTraversals)
-		if (node.isRoot() && !node.allowsRequiresContext) {
-			// if the reference doesn't require context, we can assign over
-			// it directly to avoid having to initialize it
-			node.allows = node.traverseAllows as never
-		}
-		node.traverseApply =
-			compiledTraversals[`${node.id}Apply`].bind(compiledTraversals)
-		node.precompilation = precompilation
-	}
-}
-
-const instantiatePrecompilation = (precompilation: string) =>
-	new CompiledFunction().return(precompilation).compile<
-		() => {
-			[k: `${string}Allows`]: TraverseAllows
-			[k: `${string}Apply`]: TraverseApply
-		}
-	>()()
-
-const writePrecompilation = (references: readonly BaseNode[]) =>
-	references.reduce((js, node) => {
-		const allowsCompiler = new NodeCompiler("Allows").indent()
-		node.compile(allowsCompiler)
-		const allowsJs = allowsCompiler.write(`${node.id}Allows`)
-
-		const applyCompiler = new NodeCompiler("Apply").indent()
-		node.compile(applyCompiler)
-		const applyJs = applyCompiler.write(`${node.id}Apply`)
-
-		return `${js}${allowsJs},\n${applyJs},\n`
-	}, "{\n") + "}"
 
 // ensure the scope is resolved so JIT will be applied to future types
 rootSchemaScope.export()

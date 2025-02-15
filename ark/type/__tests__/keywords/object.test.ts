@@ -10,7 +10,7 @@ contextualize(() => {
 	})
 
 	it("Date", () => {
-		// should not expand built-in classes
+		// should not expand builtin classes
 		attest(type("Date").infer).type.toString.snap("Date")
 	})
 
@@ -24,9 +24,9 @@ contextualize(() => {
 
 			attest(json({})).equals({})
 			attest(json([])).equals([])
-			attest(json(5)?.toString()).snap("must be an object or an array (was 5)")
+			attest(json(5)?.toString()).snap("must be an object (was a number)")
 			attest(json({ foo: [5n] })?.toString()).snap(
-				"foo[0] must be an object (was a bigint) or must be an array (was object)"
+				'foo["0"] must be an object (was a bigint)'
 			)
 		})
 
@@ -39,7 +39,7 @@ contextualize(() => {
 
 			// this error kind of sucks, would not be sad if it was discriminated and changed
 			attest(stringify({ foo: undefined }).toString()).snap(
-				"foo must be an object (was undefined) or must be an array (was object)"
+				"foo must be an object (was undefined)"
 			)
 
 			// has declared out

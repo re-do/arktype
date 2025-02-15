@@ -6,6 +6,7 @@ import {
 	spliterate,
 	throwParseError,
 	type array,
+	type dict,
 	type Key,
 	type listable
 } from "@ark/util"
@@ -15,11 +16,17 @@ import {
 	flattenConstraints,
 	intersectConstraints
 } from "../constraint.ts"
+import { intrinsic } from "../intrinsic.ts"
 import type { GettableKeyOrNode, KeyOrKeyNode } from "../node.ts"
+import type { Morph } from "../roots/morph.ts"
 import { typeOrTermExtends, type BaseRoot } from "../roots/root.ts"
 import type { BaseScope } from "../scope.ts"
 import type { NodeCompiler } from "../shared/compile.ts"
-import type { BaseNormalizedSchema, declareNode } from "../shared/declare.ts"
+import type {
+	attachmentsOf,
+	BaseNormalizedSchema,
+	declareNode
+} from "../shared/declare.ts"
 import { Disjoint } from "../shared/disjoint.ts"
 import {
 	implementNode,
@@ -50,7 +57,6 @@ import { Optional, type OptionalNode } from "./optional.ts"
 import type { Prop } from "./prop.ts"
 import type { Required } from "./required.ts"
 import type { Sequence } from "./sequence.ts"
-import { arrayIndexMatcherReference } from "./shared.ts"
 
 /**
  * - `"ignore"` (default) - allow and preserve extra properties
@@ -98,8 +104,8 @@ export declare namespace Structure {
 const createStructuralWriter =
 	(childStringProp: "expression" | "description") => (node: StructureNode) => {
 		if (node.props.length || node.index) {
-			const parts = node.index?.map(String) ?? []
-			node.props.forEach(node => parts.push(node[childStringProp]))
+			const parts = node.index?.map(index => index[childStringProp]) ?? []
+			node.props.forEach(prop => parts.push(prop[childStringProp]))
 
 			if (node.undeclared) parts.push(`+ (undeclared): ${node.undeclared}`)
 
@@ -549,15 +555,13 @@ export class StructureNode extends BaseConstraint<Structure.Declaration> {
 			}
 		}
 
-		if (!requireExhasutiveTraversal(this, traversalKind)) return true
+		if (!this.index && this.undeclared !== "reject") return true
 
 		const keys: Key[] = Object.keys(data)
 		keys.push(...Object.getOwnPropertySymbols(data))
 
 		for (let i = 0; i < keys.length; i++) {
 			const k = keys[i]
-
-			let matched = false
 
 			if (this.index) {
 				for (const node of this.index) {
@@ -578,47 +582,55 @@ export class StructureNode extends BaseConstraint<Structure.Declaration> {
 							if (ctx.failFast && ctx.currentErrorCount > errorCount)
 								return false
 						}
-
-						matched = true
 					}
 				}
 			}
 
-			if (this.undeclared) {
-				matched ||= k in this.propsByKey
-				matched ||=
-					this.sequence !== undefined &&
-					typeof k === "string" &&
-					$ark.intrinsic.nonNegativeIntegerString.allows(k)
-				if (!matched) {
-					if (traversalKind === "Allows") return false
-					if (this.undeclared === "reject") {
-						ctx.errorFromNodeContext({
-							// TODO: this should have its own error code
-							code: "predicate",
-							expected: "removed",
-							actual: "",
-							relativePath: [k],
-							meta: this.meta
-						})
-					} else {
-						ctx.queueMorphs([
-							data => {
-								delete data[k]
-								return data
-							}
-						])
-					}
+			if (this.undeclared === "reject" && !this.declaresKey(k)) {
+				if (traversalKind === "Allows") return false
 
-					if (ctx.failFast) return false
-				}
+				ctx.errorFromNodeContext({
+					// TODO: this should have its own error code
+					code: "predicate",
+					expected: "removed",
+					actual: "",
+					relativePath: [k],
+					meta: this.meta
+				})
+
+				if (ctx.failFast) return false
 			}
 		}
+
+		if (this.structuralMorph && !ctx.hasError())
+			ctx.queueMorphs([this.structuralMorph])
 
 		return true
 	}
 
-	compile(js: NodeCompiler): void {
+	get defaultable(): Optional.Node.withDefault[] {
+		return this.cacheGetter(
+			"defaultable",
+			this.optional?.filter(o => o.hasDefault()) ?? []
+		)
+	}
+
+	declaresKey = (k: Key): boolean =>
+		k in this.propsByKey ||
+		this.index?.some(n => n.signature.allows(k)) ||
+		(this.sequence !== undefined &&
+			$ark.intrinsic.nonNegativeIntegerString.allows(k))
+
+	declaresKeyRef: RegisteredReference = registeredReference(this.declaresKey)
+
+	get structuralMorph(): Morph | undefined {
+		return this.cacheGetter("structuralMorph", getPossibleMorph(this))
+	}
+
+	structuralMorphRef: RegisteredReference | undefined =
+		this.structuralMorph && registeredReference(this.structuralMorph)
+
+	compile(js: NodeCompiler): unknown {
 		if (js.traversalKind === "Apply") js.initializeErrorCount()
 
 		this.props.forEach(prop => {
@@ -631,51 +643,40 @@ export class StructureNode extends BaseConstraint<Structure.Declaration> {
 			if (js.traversalKind === "Apply") js.returnIfFailFast()
 		}
 
-		if (requireExhasutiveTraversal(this, js.traversalKind)) {
+		if (this.index || this.undeclared === "reject") {
 			js.const("keys", "Object.keys(data)")
 			js.line("keys.push(...Object.getOwnPropertySymbols(data))")
 			js.for("i < keys.length", () => this.compileExhaustiveEntry(js))
 		}
 
-		if (js.traversalKind === "Allows") js.return(true)
+		if (js.traversalKind === "Allows") return js.return(true)
+
+		// always queue deleteUndeclared on valid traversal for "delete"
+		if (this.structuralMorphRef) {
+			js.if("!ctx.hasError()", () =>
+				js.line(`ctx.queueMorphs([${this.structuralMorphRef}])`)
+			)
+		}
 	}
 
 	protected compileExhaustiveEntry(js: NodeCompiler): NodeCompiler {
 		js.const("k", "keys[i]")
 
-		if (this.undeclared) js.let("matched", false)
-
 		this.index?.forEach(node => {
-			js.if(
-				`${js.invoke(node.signature, { arg: "k", kind: "Allows" })}`,
-				() => {
-					js.traverseKey("k", "data[k]", node.value)
-					if (this.undeclared) js.set("matched", true)
-					return js
-				}
+			js.if(`${js.invoke(node.signature, { arg: "k", kind: "Allows" })}`, () =>
+				js.traverseKey("k", "data[k]", node.value)
 			)
 		})
 
-		if (this.undeclared) {
-			if (this.props?.length !== 0)
-				js.line(`matched ||= k in ${this.propsByKeyReference}`)
-
-			if (this.sequence) {
-				js.line(
-					`matched ||= typeof k === "string" && ${arrayIndexMatcherReference}.test(k)`
-				)
-			}
-
-			js.if("!matched", () => {
+		if (this.undeclared === "reject") {
+			js.if(`!${this.declaresKeyRef}(k)`, () => {
 				if (js.traversalKind === "Allows") return js.return(false)
-				return this.undeclared === "reject" ?
-						js
-							.line(
-								// TODO: should have its own error code
-								`ctx.errorFromNodeContext({ code: "predicate", expected: "removed", actual: "", relativePath: [k], meta: ${this.compiledMeta} })`
-							)
-							.if("ctx.failFast", () => js.return())
-					:	js.line(`ctx.queueMorphs([data => { delete data[k]; return data }])`)
+				return js
+					.line(
+						// TODO: should have its own error code
+						`ctx.errorFromNodeContext({ code: "predicate", expected: "removed", actual: "", relativePath: [k], meta: ${this.compiledMeta} })`
+					)
+					.if("ctx.failFast", () => js.return())
 			})
 		}
 
@@ -747,6 +748,69 @@ export class StructureNode extends BaseConstraint<Structure.Declaration> {
 	}
 }
 
+const defaultableMorphsCache: Record<string, Morph | undefined> = {}
+
+type PartiallyInitializedStructure = attachmentsOf<Structure.Declaration> &
+	Pick<Structure.Node, "defaultable" | "declaresKey">
+
+const getPossibleMorph = (
+	// important to only use attached props since this is referenced from
+	// its own super class constructor (defaultable + keyof are declared the same way and safe)
+	node: PartiallyInitializedStructure
+): Morph | undefined => {
+	let cacheKey = ""
+
+	for (let i = 0; i < node.defaultable.length; i++)
+		cacheKey += node.defaultable[i].defaultValueMorphRef
+
+	if (node.sequence?.defaultValueMorphsReference)
+		cacheKey += node.sequence?.defaultValueMorphsReference
+
+	if (node.undeclared === "delete") {
+		cacheKey += "delete !("
+		node.required?.forEach(n => (cacheKey += n.compiledKey + " | "))
+		node.optional?.forEach(n => (cacheKey += n.compiledKey + " | "))
+		node.index?.forEach(index => (cacheKey += index.signature.id + " | "))
+		if (node.sequence) {
+			if (node.sequence.maxLength === null)
+				// for an arbitrary length array, the breakdown of
+				// optional, required variadic etc. elements doesn't matter-
+				// no index will be deleted
+				cacheKey += intrinsic.nonNegativeIntegerString.id
+			// otherwise, add keys based on length
+			else {
+				cacheKey += node.sequence.tuple.forEach(
+					(_, i) => (cacheKey += i + " | ")
+				)
+			}
+		}
+		cacheKey += ")"
+	}
+
+	if (!cacheKey) return undefined
+
+	return (defaultableMorphsCache[cacheKey] ??= (data, ctx) => {
+		for (let i = 0; i < node.defaultable.length; i++) {
+			if (!(node.defaultable[i].key in data))
+				node.defaultable[i].defaultValueMorph(data, ctx)
+		}
+
+		if (node.sequence?.defaultables) {
+			for (
+				let i = data.length - node.sequence.prefixLength;
+				i < node.sequence.defaultables.length;
+				i++
+			)
+				node.sequence.defaultValueMorphs[i](data, ctx)
+		}
+
+		if (node.undeclared === "delete")
+			for (const k in data) if (!node.declaresKey(k)) delete (data as dict)[k]
+
+		return data
+	})
+}
+
 export type PropFlatMapper = (entry: Prop.Node) => listable<MappedPropInner>
 
 export type MappedPropInner = BaseMappedPropInner | OptionalMappedPropInner
@@ -763,19 +827,6 @@ export interface OptionalMappedPropInner extends Optional.Schema {
 export const Structure = {
 	implementation,
 	Node: StructureNode
-}
-
-const requireExhasutiveTraversal = (
-	node: Structure.Node,
-	traversalKind: TraversalKind
-) => {
-	if (node.index || node.undeclared === "reject") return true
-
-	// when applying key deletion, we must queue morphs for all undeclared keys
-	// when checking whether an input is allowed, they are irrelevant because it always will be
-	if (node.undeclared === "delete" && traversalKind === "Apply") return true
-
-	return false
 }
 
 const indexerToKey = (indexable: GettableKeyOrNode): KeyOrKeyNode => {

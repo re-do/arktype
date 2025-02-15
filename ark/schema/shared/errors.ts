@@ -93,35 +93,35 @@ export class ArkError<
 	}
 
 	get expected(): string {
-		return (
-			this.input.expected ??
-			this.meta?.expected?.(this.input as never) ??
-			this.nodeConfig.expected?.(this.input as never)
-		)
+		if (this.input.expected) return this.input.expected
+
+		const config = this.meta?.expected ?? this.nodeConfig.expected
+
+		return typeof config === "function" ? config(this.input as never) : config
 	}
 
 	get actual(): string {
-		return (
-			this.input.actual ??
-			this.meta?.actual?.(this.data as never) ??
-			this.nodeConfig.actual?.(this.data as never)
-		)
+		if (this.input.actual) return this.input.actual
+
+		const config = this.meta?.actual ?? this.nodeConfig.actual
+
+		return typeof config === "function" ? config(this.data as never) : config
 	}
 
 	get problem(): string {
-		return (
-			this.input.problem ??
-			this.meta?.problem?.(this as never) ??
-			this.nodeConfig.problem(this as never)
-		)
+		if (this.input.problem) return this.input.problem
+
+		const config = this.meta?.problem ?? this.nodeConfig.problem
+
+		return typeof config === "function" ? config(this as never) : config
 	}
 
 	get message(): string {
-		return (
-			this.input.message ??
-			this.meta?.message?.(this as never) ??
-			this.nodeConfig.message(this as never)
-		)
+		if (this.input.message) return this.input.message
+
+		const config = this.meta?.message ?? this.nodeConfig.message
+
+		return typeof config === "function" ? config(this as never) : config
 	}
 
 	toString(): string {
@@ -131,6 +131,10 @@ export class ArkError<
 	throw(): never {
 		throw this
 	}
+}
+
+export declare namespace ArkErrors {
+	export type Handler<returns = unknown> = (errors: ArkErrors) => returns
 }
 
 /**
@@ -333,9 +337,17 @@ export type CustomErrorInput = show<
 
 export type ArkErrorInput = string | ArkErrorContextInput | CustomErrorInput
 
+export type ProblemConfig<code extends ArkErrorCode = ArkErrorCode> =
+	| string
+	| ProblemWriter<code>
+
 export type ProblemWriter<code extends ArkErrorCode = ArkErrorCode> = (
 	context: ProblemContext<code>
 ) => string
+
+export type MessageConfig<code extends ArkErrorCode = ArkErrorCode> =
+	| string
+	| MessageWriter<code>
 
 export type MessageWriter<code extends ArkErrorCode = ArkErrorCode> = (
 	context: MessageContext<code>
@@ -344,9 +356,17 @@ export type MessageWriter<code extends ArkErrorCode = ArkErrorCode> = (
 export type getAssociatedDataForError<code extends ArkErrorCode> =
 	code extends NodeKind ? Prerequisite<code> : unknown
 
+export type ExpectedConfig<code extends ArkErrorCode = ArkErrorCode> =
+	| string
+	| ExpectedWriter<code>
+
 export type ExpectedWriter<code extends ArkErrorCode = ArkErrorCode> = (
 	source: errorContext<code>
 ) => string
+
+export type ActualConfig<code extends ArkErrorCode = ArkErrorCode> =
+	| string
+	| ActualWriter<code>
 
 export type ActualWriter<code extends ArkErrorCode = ArkErrorCode> = (
 	data: getAssociatedDataForError<code>

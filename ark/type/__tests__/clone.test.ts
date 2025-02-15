@@ -1,6 +1,5 @@
 import { attest, contextualize } from "@ark/attest"
-import { $ark } from "@ark/schema"
-import { configure, type } from "arktype"
+import { type } from "arktype"
 
 contextualize(() => {
 	it("preserves the original references if no morphs are present", () => {
@@ -93,27 +92,5 @@ contextualize(() => {
 		// if process.env is not spread here, the assertion fails apparently
 		// because it's an exotic object? seems like a Node bug
 		attest({ ...process.env }).equals(originalEnv)
-	})
-
-	it("can be globally configured", () => {
-		configure({ clone: false })
-
-		const { userForm } = type.module({
-			userForm: {
-				age: "string.numeric.parse"
-			}
-		})
-
-		const formData = {
-			age: "42"
-		}
-
-		const out = userForm(formData)
-
-		// the original object's age key is now a number
-		attest(formData.age).unknown.equals(42)
-		attest(formData).unknown.equals(out)
-
-		configure({ clone: $ark.defaultConfig.clone })
 	})
 })

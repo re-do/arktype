@@ -6,7 +6,7 @@ TypeScript is extremely versatile for representing types like `string` or `numbe
 
 In ArkType, conditions that narrow a type beyond its **basis** are called **constraints**.
 
-Constraints are a first-class citizen of ArkType. They are fully composable with TypeScript's built-in operators and governed by the same underlying principles of set-theory.
+Constraints are a first-class citizen of ArkType. They are fully composable with TypeScript's builtin operators and governed by the same underlying principles of set-theory.
 
 ## Define
 
@@ -14,7 +14,7 @@ Let's create a new `contact` Type that enforces our example constraints.
 
 ```ts
 const contact = type({
-	// many common constraints are available as built-in keywords
+	// many common constraints are available as builtin keywords
 	email: "string.email",
 	// others can be written as type-safe expressions
 	score: "number.integer < 100"
@@ -52,53 +52,30 @@ const contacts = contact.array().atLeastLength(1)
 Structured constraints like divisors and ranges will only take us so far. Luckily, they integrate seamlessly with whatever custom validation logic you need.
 
 ```ts
-const palindromicEmail = type("string.email").narrow((address, ctx) => {
-	if (address === [...address].reverse().join("")) {
-		// congratulations! your email is somehow a palindrome
-		return true
-	}
-	// add a customizable error and return false
-	return ctx.mustBe("a palindrome")
-})
-
-const palindromicContact = type({
-	email: palindromicEmail,
-	score: "number.integer < 100"
-})
-```
-
-We can invoke `palindromicContact` anywhere to get validated data or a list of errors with a user-friendly summary.
-
-```ts
-const palindromicEmail = type("string.email").narrow((address, ctx) => {
-	if (address === [...address].reverse().join("")) {
-		// congratulations! your email is somehow a palindrome
-		return true
-	}
-	// add a customizable error and return false
-	return ctx.mustBe("a palindrome")
-})
-
-const palindromicContact = type({
-	email: palindromicEmail,
-	score: "number.integer < 100"
-})
-
 interface RuntimeErrors extends type.errors {
-	/**email must be a palindrome (was "david@arktype.io")
-score (133.7) must be...
-  • an integer
-  • less than 100*/
+	/**even must be even (was 7)
+odd must be odd (was 8)*/
 	summary: string
 }
 
 const narrowMessage = (e: type.errors): e is RuntimeErrors => true
-// ---cut-start---
-const out = palindromicContact({
-	email: "david@arktype.io",
-	score: 133.7
+// ---cut---
+
+// there's no "not divisible" expression - need to narrow
+const odd = type("number").narrow((n, ctx) =>
+	// if even, add a customizable error and return false
+	n % 2 === 0 ? ctx.mustBe("odd") : true
+)
+
+const favoriteNumbers = type({
+	even: "number % 2",
+	odd
 })
-// ---cut-end---
+
+const out = favoriteNumbers({
+	even: 7,
+	odd: 8
+})
 
 if (out instanceof type.errors) {
 	// ---cut-start---
@@ -107,7 +84,7 @@ if (out instanceof type.errors) {
 	// hover summary to see validation errors
 	console.error(out.summary)
 } else {
-	console.log(out.email)
+	console.log(out.odd)
 }
 ```
 

@@ -47,10 +47,15 @@ export declare namespace arkTsKeywords {
 	}
 }
 
-export const unknown = Scope.module({
-	root: intrinsic.unknown,
-	any: intrinsic.unknown
-})
+export const unknown = Scope.module(
+	{
+		root: intrinsic.unknown,
+		any: intrinsic.unknown
+	},
+	{
+		name: "unknown"
+	}
+)
 
 export declare namespace unknown {
 	export type submodule = Submodule<$>
@@ -61,14 +66,19 @@ export declare namespace unknown {
 	}
 }
 
-export const json = Scope.module({
-	root: intrinsic.json,
-	stringify: node("morph", {
-		in: intrinsic.json,
-		morphs: (data: Json) => JSON.stringify(data),
-		declaredOut: intrinsic.string
-	})
-})
+export const json = Scope.module(
+	{
+		root: intrinsic.jsonObject,
+		stringify: node("morph", {
+			in: intrinsic.jsonObject,
+			morphs: (data: Json) => JSON.stringify(data),
+			declaredOut: intrinsic.string
+		})
+	},
+	{
+		name: "object.json"
+	}
+)
 
 export declare namespace json {
 	export type submodule = Submodule<$>
@@ -79,10 +89,15 @@ export declare namespace json {
 	}
 }
 
-export const object = Scope.module({
-	root: intrinsic.object,
-	json
-})
+export const object = Scope.module(
+	{
+		root: intrinsic.object,
+		json
+	},
+	{
+		name: "object"
+	}
+)
 
 export declare namespace object {
 	export type submodule = Submodule<$>

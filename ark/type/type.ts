@@ -3,7 +3,6 @@ import {
 	BaseRoot,
 	GenericRoot,
 	type BaseParseOptions,
-	type MetaSchema,
 	type Morph,
 	type Predicate,
 	type RootSchema
@@ -16,6 +15,7 @@ import {
 	type conform
 } from "@ark/util"
 import type { distill } from "./attributes.ts"
+import type { TypeMetaInput } from "./config.ts"
 import type {
 	Generic,
 	GenericParser,
@@ -25,6 +25,7 @@ import type {
 	validateParameterString
 } from "./generic.ts"
 import type { Ark, keywords, type } from "./keywords/keywords.ts"
+import type { MatchParser } from "./match.ts"
 import type { BaseType } from "./methods/base.ts"
 import type { instantiateType } from "./methods/instantiate.ts"
 import type { validateDeclared } from "./parser/definition.ts"
@@ -52,11 +53,11 @@ export interface TypeParser<$ = {}> extends Ark.boundTypeAttachments<$> {
 	 *
 	 * @example const person = type({ name: "string" })
 	 */
-	<const def, r = Type<type.infer<def, $>, $>>(
+	<const def, r = type.instantiate<def, $>>(
 		// Parse and check the definition, returning either the original input for a
 		// valid definition or a string representing an error message.
 		def: type.validate<def, $>
-	): r
+	): r extends infer _ ? _ : never
 
 	/**
 	 * Create a {@link Generic} from a parameter string and body definition.
@@ -70,14 +71,18 @@ export interface TypeParser<$ = {}> extends Ark.boundTypeAttachments<$> {
 	 *
 	 * @example const boxOf = type("<t extends string | number>", { contents: "t" })
 	 */
-	<const params extends ParameterString, const def>(
+	<
+		const params extends ParameterString,
+		const def,
+		r = Generic<parseValidGenericParams<params, $>, def, $>
+	>(
 		params: validateParameterString<params, $>,
 		def: type.validate<
 			def,
 			$,
 			baseGenericConstraints<parseValidGenericParams<params, $>>
 		>
-	): Generic<parseValidGenericParams<params, $>, def, $>
+	): r extends infer _ ? _ : never
 
 	/**
 	 * Create a {@link Type} from a [tuple expression](http://localhost:3000/docs/expressions)
@@ -89,7 +94,7 @@ export interface TypeParser<$ = {}> extends Ark.boundTypeAttachments<$> {
 		const zero,
 		const one,
 		const rest extends array,
-		r = Type<type.infer<[zero, one, ...rest], $>, $>
+		r = type.instantiate<[zero, one, ...rest], $>
 	>(
 		_0: zero extends IndexZeroOperator ? zero : type.validate<zero, $>,
 		_1: zero extends "keyof" ? type.validate<one, $>
@@ -101,10 +106,11 @@ export interface TypeParser<$ = {}> extends Ark.boundTypeAttachments<$> {
 		: one extends TupleInfixOperator ?
 			one extends ":" ? [Predicate<distill.In<type.infer<zero, $>>>]
 			: one extends "=>" ? [Morph<distill.Out<type.infer<zero, $>>, unknown>]
-			: one extends "@" ? [MetaSchema]
+			: one extends "|>" ? [type.validate<rest[0], $>]
+			: one extends "@" ? [TypeMetaInput]
 			: [type.validate<rest[0], $>]
 		:	[]
-	): r
+	): r extends infer _ ? _ : never
 
 	/**
 	 * An alias of the {@link ArkErrors} class, an instance of which is returned when a {@link Type}
@@ -133,6 +139,7 @@ export interface TypeParser<$ = {}> extends Ark.boundTypeAttachments<$> {
 	scope: ScopeParser
 	define: DefinitionParser<$>
 	generic: GenericParser<$>
+	match: MatchParser<$>
 	schema: SchemaParser<$>
 	/**
 	 * Create a {@link Type} that is satisfied only by a value strictly equal (`===`) to the argument passed to this function.
@@ -168,6 +175,7 @@ export class InternalTypeParser extends Callable<
 				module: $.constructor.module,
 				scope: $.constructor.scope,
 				define: $.define as never,
+				match: $.match as never,
 				generic: $.generic as never,
 				schema: $.schema as never,
 				// this won't be defined during bootstrapping, but externally always will be

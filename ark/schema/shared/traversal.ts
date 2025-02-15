@@ -146,20 +146,21 @@ export class Traversal {
 		else this.queuedMorphs.push(input)
 	}
 
-	finalize(): unknown {
-		if (!this.queuedMorphs.length)
-			return this.hasError() ? this.errors : this.root
+	finalize(onFail?: ArkErrors.Handler | null): unknown {
+		if (this.queuedMorphs.length) {
+			if (
+				typeof this.root === "object" &&
+				this.root !== null &&
+				this.config.clone
+			)
+				this.root = this.config.clone(this.root)
 
-		if (
-			typeof this.root === "object" &&
-			this.root !== null &&
-			this.config.clone
-		)
-			this.root = this.config.clone(this.root)
+			this.applyQueuedMorphs()
+		}
 
-		this.applyQueuedMorphs()
+		if (this.hasError()) return onFail ? onFail(this.errors) : this.errors
 
-		return this.hasError() ? this.errors : this.root
+		return this.root
 	}
 
 	get currentErrorCount(): number {
@@ -307,6 +308,7 @@ export type TraverseAllows<data = unknown> = (
 	data: data,
 	ctx: InternalTraversal
 ) => boolean
+
 export type TraverseApply<data = unknown> = (
 	data: data,
 	ctx: InternalTraversal

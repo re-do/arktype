@@ -53,11 +53,9 @@ export default async (props: { params: Promise<{ slug?: string[] }> }) => {
 						...(await import("../../../components/AutoplayDemo.tsx")),
 						...(await import("../../../components/CodeBlock.tsx")),
 						...(await import("../../../components/InstallationTabs.tsx")),
-
 						...(await import("../../../components/KeywordTable.tsx")),
 						...(await import("../../../components/ApiTable.tsx")),
 						...(await import("../../../components/LinkCard.tsx")),
-						...(await import("../../../components/Asterisk.tsx")),
 						...(await import("../../../components/AutoplayDemo.tsx")),
 						...(await import("../../../components/RuntimeBenchmarksGraph.tsx")),
 						pre: ({ ref: _, ...props }) => (

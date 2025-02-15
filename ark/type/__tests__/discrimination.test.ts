@@ -73,8 +73,24 @@ contextualize(() => {
 
 	it("nested", () => {
 		const $ = getPlaces()
-		const t = $.type("ocean|sky|rainForest|desert")
-		attest(t.internal.assertHasKind("union").discriminantJson).snap({
+		const climate = $.type("ocean | sky | rainForest | desert")
+
+		const missingLabel = climate({
+			climate: "wet",
+			color: "blue"
+		})
+
+		attest(missingLabel.toString()).snap("isOcean must be true (was missing)")
+
+		const twoMissingKeys = climate({
+			color: "blue"
+		})
+
+		attest(twoMissingKeys.toString()).snap(
+			'climate must be "dry" or "wet" (was undefined)'
+		)
+
+		attest(climate.internal.assertHasKind("union").discriminantJson).snap({
 			kind: "unit",
 			path: ["color"],
 			cases: {
@@ -128,7 +144,7 @@ contextualize(() => {
 		attest(t.internal.assertHasKind("union").discriminantJson).equals(null)
 	})
 
-	it("default case", () => {
+	it("overlapping default case", () => {
 		const t = getPlaces().type([
 			"ocean|rainForest",
 			"|",
@@ -139,18 +155,24 @@ contextualize(() => {
 			kind: "unit",
 			path: ["color"],
 			cases: {
-				'"blue"': {
-					required: [
-						{ key: "climate", value: { unit: "wet" } },
-						{ key: "isOcean", value: { unit: true } }
-					]
-				},
-				'"green"': {
-					required: [
-						{ key: "climate", value: { unit: "wet" } },
-						{ key: "isRainForest", value: { unit: true } }
-					]
-				},
+				'"blue"': [
+					{
+						required: [
+							{ key: "climate", value: { unit: "wet" } },
+							{ key: "isOcean", value: { unit: true } }
+						]
+					},
+					{ required: [{ key: "temperature", value: { unit: "hot" } }] }
+				],
+				'"green"': [
+					{
+						required: [
+							{ key: "climate", value: { unit: "wet" } },
+							{ key: "isRainForest", value: { unit: true } }
+						]
+					},
+					{ required: [{ key: "temperature", value: { unit: "hot" } }] }
+				],
 				default: {
 					required: [{ key: "temperature", value: { unit: "hot" } }],
 					domain: "object"
@@ -165,29 +187,43 @@ contextualize(() => {
 			"|",
 			["ocean|rainForest", "|", { temperature: "'hot'" }]
 		])
+
 		attest(t.internal.assertHasKind("union").discriminantJson).snap({
 			kind: "unit",
-			path: ["temperature"],
+			path: ["color"],
 			cases: {
-				'"cold"': true,
-				'"hot"': true,
-				default: {
+				'"blue"': {
 					kind: "unit",
-					path: ["color"],
+					path: ["temperature"],
 					cases: {
-						'"blue"': {
+						'"cold"': true,
+						'"hot"': true,
+						default: {
 							required: [
 								{ key: "climate", value: { unit: "wet" } },
 								{ key: "isOcean", value: { unit: true } }
 							]
-						},
-						'"green"': {
+						}
+					}
+				},
+				'"green"': {
+					kind: "unit",
+					path: ["temperature"],
+					cases: {
+						'"cold"': true,
+						'"hot"': true,
+						default: {
 							required: [
 								{ key: "climate", value: { unit: "wet" } },
 								{ key: "isRainForest", value: { unit: true } }
 							]
 						}
 					}
+				},
+				default: {
+					kind: "unit",
+					path: ["temperature"],
+					cases: { '"cold"': true, '"hot"': true }
 				}
 			}
 		})
@@ -255,13 +291,13 @@ contextualize(() => {
 
 		attest(union.discriminantJson).snap({
 			kind: "unit",
-			path: ["innerB", "id"],
+			path: ["innerA", "id"],
 			cases: {
 				"1": true,
 				"2": true,
 				default: {
 					kind: "unit",
-					path: ["innerA", "id"],
+					path: ["innerB", "id"],
 					cases: { "1": true, "2": true }
 				}
 			}
@@ -273,7 +309,7 @@ contextualize(() => {
 		attest(union({ innerB: { id: 2 } })).equals({ innerB: { id: 2 } })
 
 		attest(union({})?.toString()).snap(
-			"innerA.id must be 1 or 2 (was undefined)"
+			"innerB.id must be 1 or 2 (was undefined)"
 		)
 	})
 
@@ -327,5 +363,70 @@ contextualize(() => {
 		})
 
 		attest(AorB({ something: "A" })).snap({ something: "A" })
+	})
+
+	it("includes non-disjoint branches in corresponding cases", () => {
+		const t = type({
+			id: "0",
+			k1: "number"
+		})
+			.or({ id: "1", k1: "number" })
+			.or({
+				name: "string"
+			})
+
+		attest(t.internal.assertHasKind("union").discriminantJson).snap({
+			kind: "unit",
+			path: ["id"],
+			cases: {
+				"0": [
+					{ required: [{ key: "k1", value: "number" }] },
+					{ required: [{ key: "name", value: "string" }] }
+				],
+				"1": [
+					{ required: [{ key: "k1", value: "number" }] },
+					{ required: [{ key: "name", value: "string" }] }
+				],
+				default: {
+					required: [{ key: "name", value: "string" }],
+					domain: "object"
+				}
+			}
+		})
+
+		// should hit the case discriminated for id: 1,
+		// but still resolve correctly via the { name: string } branch
+		attest(t({ name: "foo", id: 1 })).unknown.snap({ name: "foo", id: 1 })
+	})
+
+	it("correctly dsicriminated onDeclaredKey: reject in the above scenario", () => {
+		const t = type({
+			id: "0",
+			k1: "number"
+		})
+			.or({ id: "1", k1: "number" })
+			.or({
+				"+": "reject",
+				name: "string"
+			})
+
+		attest(t.internal.assertHasKind("union").discriminantJson).snap({
+			kind: "unit",
+			path: ["id"],
+			cases: {
+				"0": { required: [{ key: "k1", value: "number" }] },
+				"1": { required: [{ key: "k1", value: "number" }] },
+				default: {
+					undeclared: "reject",
+					required: [{ key: "name", value: "string" }],
+					domain: "object"
+				}
+			}
+		})
+
+		// now that we are rejecting undeclared keys, all branches fail
+		attest(t({ name: "foo", id: 1 }).toString()).snap(
+			"k1 must be a number (was missing)"
+		)
 	})
 })

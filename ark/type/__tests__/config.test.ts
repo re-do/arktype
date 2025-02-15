@@ -1,14 +1,13 @@
 import { attest, contextualize } from "@ark/attest"
 import {
 	$ark,
-	configure,
 	rootSchema,
 	schemaScope,
-	type ArkConfig
+	type ArkSchemaConfig
 } from "@ark/schema"
-import { scope, type } from "arktype"
+import { configure, scope, type } from "arktype"
 
-const withConfig = (config: ArkConfig, fn: () => void) => {
+const withConfig = (config: ArkSchemaConfig, fn: () => void) => {
 	const originalConfig = $ark.config
 	const originalResolvedConfig = $ark.resolvedConfig
 	configure(config)
@@ -92,6 +91,17 @@ contextualize(() => {
 		attest(customOne(2).toString()).snap(
 			"custom message custom problem custom expected 1 custom actual 2"
 		)
+	})
+
+	it("string node configs", () => {
+		const customTwo = type("2", "@", {
+			expected: "2",
+			actual: "something else",
+			problem: "was terrible",
+			message: "root was terrible"
+		})
+		attest<2>(customTwo.infer)
+		attest(customTwo(1).toString()).snap("root was terrible")
 	})
 
 	it("node writer config works on nested constraint", () => {
@@ -202,6 +212,26 @@ contextualize(() => {
 			})
 
 			attest(uninvalidable.allows(new Date("!"))).equals(false)
+		})
+	})
+
+	it("clone", () => {
+		withConfig({ clone: false }, () => {
+			const { userForm } = type.module({
+				userForm: {
+					age: "string.numeric.parse"
+				}
+			})
+
+			const formData = {
+				age: "42"
+			}
+
+			const out = userForm(formData)
+
+			// the original object's age key is now a number
+			attest(formData.age).unknown.equals(42)
+			attest(formData).unknown.equals(out)
 		})
 	})
 

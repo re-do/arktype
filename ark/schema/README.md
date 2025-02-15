@@ -9,7 +9,7 @@ The parts of ArkType's type system that exist in TS (i.e. not runtime-only const
 - Union: a set of intersections
 - Intersection: a set of a basis and constraints
 - Basis: this is the base type to which refinements like props are applied. It is one of three things, getting narrower as you move down the list:
-  - Domain: `"string" | "number" | "bigint" | "object" | "symbol"` parallels built-in TS keywords for non-enumerable value sets
+  - Domain: `"string" | "number" | "bigint" | "object" | "symbol"` parallels builtin TS keywords for non-enumerable value sets
   - Proto: Must be an `instanceof` some class (implies domain `"object"`)
   - Unit: Must `===` some value (can be intersected with any other constraint and reduced to itself or a disjoint)
 - Constraint: an individual condition that must be satisfied:

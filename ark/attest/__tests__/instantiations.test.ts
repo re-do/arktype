@@ -4,7 +4,7 @@ import { it } from "mocha"
 
 contextualize(() => {
 	it("inline", () => {
-		attest.instantiations([7574, "instantiations"])
+		attest.instantiations([10000, "instantiations"])
 		return type({
 			kind: "'admin'",
 			"powers?": "string[]"

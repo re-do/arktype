@@ -17,7 +17,7 @@ However, it's equally important that when you need different behavior, you can e
   <tbody>
     <tr>
       <td>**default**</td>
-      <td>built-in defaults for all Types</td>
+      <td>builtin defaults for all Types</td>
       <td></td>
     </tr>
     <tr>
@@ -32,7 +32,7 @@ configure({ numberAllowsNaN: true })
 
 ```ts title="app.ts"
 import "./config.ts"
-// import your config file before your arktype!
+// import your config file before arktype
 import { type } from "arktype"
 
 type.number.allows(Number.NaN) // true
@@ -97,7 +97,7 @@ Some options only apply at specific levels, as reflected in the corresponding in
 	type="warn"
 	title='Use the `"arktype/config"` entrypoint in a separate file for global config!'
 >
-	If you need your config to apply to built-in keywords (important for options
+	If you need your config to apply to builtin keywords (important for options
 	like `jitless`, `numberAllowsNaN`, `dateAllowsInvalid`), you should import and
 	`configure` from `"arktype/config"` before importing anything from
 	`"arktype"`.
@@ -108,7 +108,7 @@ Otherwise, keywords will have already been parsed by the time your config applie
 
 ### Errors
 
-To allow custom errors to be integrated seemlessly with built-in logic for composite errors (i.e. `union` and `intersection`), ArkType supports a set of composable options:
+To allow custom errors to be integrated seemlessly with builtin logic for composite errors (i.e. `union` and `intersection`), ArkType supports a set of composable options:
 
 <table>
 <thead>
@@ -246,9 +246,48 @@ For use cases like i18n that fall outside the scope of this composable message c
 
 These `ArkError` instances can be arbitrarily transformed and composed with an internationalization library. This is still a topic we're working on investigating and documenting, so please reach out with any questions or feedback!
 
+### Keywords
+
+Builtin keywords like `string.email` can be globally configured.
+
+This can be very helpful for customizing error messages without needing to create your own aliases or wrappers.
+
+```ts title="config.ts"
+import { configure } from "arktype/config"
+
+configure({
+	keywords: {
+		string: "shorthand description",
+		"string.email": {
+			actual: () => "definitely fake"
+		}
+	}
+})
+```
+
+```ts title="app.ts"
+import "./config.ts"
+// import your config file before arktype
+import { type } from "arktype"
+
+const user = type({
+	name: "string",
+	email: "string.email"
+})
+
+const out = user({
+	// ArkErrors: name must be shorthand description (was a number)
+	name: 5,
+	// ArkErrors: email must be an email address (was definitely fake)
+	email: "449 Canal St"
+})
+```
+
+The options you can provide here are identical to those used to [configure a Type directly](/docs/expressions#meta), and can also be [extended at a type-level to include custom metadata](/docs/configuration#custom).
+
 ### Clone
 
-By default, before a [morph](/docs/intro/morphs-and-more) is applied, ArkType will deeply clone the original input value with a built-in `deepClone` function that tries to make reasonable assumptions about preserving prototypes etc. The implementation of `deepClone` can be found [here](https://github.com/arktypeio/arktype/blob/main/ark/util/clone.ts).
+By default, before a [morph](/docs/intro/morphs-and-more) is applied, ArkType will deeply clone the original input value with a builtin `deepClone` function that tries to make reasonable assumptions about preserving prototypes etc. The implementation of `deepClone` can be found [here](https://github.com/arktypeio/arktype/blob/main/ark/util/clone.ts).
 
 You can provide an alternate clone implementation to the `clone` config option.
 
@@ -260,6 +299,7 @@ configure({ clone: structuredClone })
 
 ```ts title="app.ts"
 import "./config.ts"
+// import your config file before arktype
 import { type } from "arktype"
 
 // will now create a new object using structuredClone
@@ -278,6 +318,7 @@ configure({ clone: false })
 
 ```ts title="app.ts"
 import "./config.ts"
+// import your config file before arktype
 import { type } from "arktype"
 
 const userForm = type({
@@ -312,6 +353,7 @@ configure({ onUndeclaredKey: "delete" })
 
 ```ts title="app.ts"
 import "./config.ts"
+// import your config file before arktype
 import { type } from "arktype"
 
 const userForm = type({
@@ -339,6 +381,7 @@ configure({ jitless: true })
 
 ```ts title="app.ts"
 import "./config.ts"
+// import your config file before arktype
 import { type } from "arktype"
 
 // will not be precompiled
@@ -347,7 +390,42 @@ const myObject = type({
 })
 ```
 
-### custom
+### onFail
+
+In some domains, you may always want to throw on failed validation or transform the result in some other way.
+
+By specifying `onFail` in your global config, you can control what happens when you invoke a `Type` on invalid data:
+
+```ts title="config.ts"
+import { configure } from "arktype/config"
+
+const config = configure({
+	onFail: errors => errors.throw()
+})
+
+// be sure to specify both the runtime and static configs
+
+declare global {
+	interface ArkEnv {
+		onFail: typeof config.onFail
+	}
+}
+```
+
+```ts title="app.ts"
+import "./config.ts"
+// import your config file before arktype
+import { type } from "arktype"
+
+// data is inferred as string- no need to discriminate!
+const data = type.string("foo")
+
+// now thrown instead of returned
+// ArkErrors: must be a string (was number)
+const bad = type.string(5)
+```
+
+### metadata
 
 Additional arbitrary metadata can also be associated with a Type.
 
@@ -369,4 +447,25 @@ const mrPingsSecretIngredientSoup = type({
 	broth: "'miso' | 'vegetable'",
 	ingredients: "string[]"
 }).configure({ secretIngredient: "nothing!" })
+```
+
+### prototypes
+
+When you `.infer` your Types, ArkType traverses them and extracts special values like morphs, e.g. `(In: string) => Out<number>`.
+
+Though generally this is able to preserve the original type, it is inefficient and can accidentally expand certain object types.
+
+You can use the type-level `prototypes` config to tell ArkType to treat those types as external:
+
+```ts
+declare global {
+	interface ArkEnv {
+		prototypes(): MySpecialClass
+	}
+}
+
+class MySpecialClass {}
+
+const t = type.instanceOf(MySpecialClass)
+//    ^? Type<MySpecialClass>
 ```

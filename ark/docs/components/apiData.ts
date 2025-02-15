@@ -335,26 +335,6 @@ export const apiDocsByGroup: ApiDocsByGroup = {
         },
         {
             "group": "Type",
-            "name": "as",
-            "summary": [
-                {
-                    "kind": "text",
-                    "value": "cast the way this is inferred"
-                }
-            ],
-            "notes": [
-                [],
-                [
-                    {
-                        "kind": "noteStart",
-                        "value": "🥸 inference-only function that does nothing runtime"
-                    }
-                ]
-            ],
-            "example": "// Type<`LEEEEEEEE${string}ROY`>\nconst leeroy = type(/^LE{8,}ROY$/).as<`LEEEEEEEE${string}ROY`>()"
-        },
-        {
-            "group": "Type",
             "name": "brand",
             "summary": [
                 {
@@ -372,38 +352,6 @@ export const apiDocsByGroup: ApiDocsByGroup = {
                 ]
             ],
             "example": "const palindrome = type(\"string\")\n    .narrow(s => s === [...s].reverse().join(\"\"))\n    .brand(\"palindrome\")\n// Brand<string, \"palindrome\">\nconst out = palindrome.assert(\"racecar\")"
-        },
-        {
-            "group": "Type",
-            "name": "and",
-            "summary": [
-                {
-                    "kind": "text",
-                    "value": "intersect the parsed Type, throwing if the result is unsatisfiable"
-                }
-            ],
-            "notes": [],
-            "example": "// Type<{ foo: number; bar: string }>\nconst t = type({ foo: \"number\" }).and({ bar: \"string\" })\n// ParseError: Intersection at foo of number and string results in an unsatisfiable type\nconst bad = type({ foo: \"number\" }).and({ foo: \"string\" })"
-        },
-        {
-            "group": "Type",
-            "name": "or",
-            "summary": [
-                {
-                    "kind": "text",
-                    "value": "union with the parsed Type"
-                }
-            ],
-            "notes": [
-                [],
-                [
-                    {
-                        "kind": "noteStart",
-                        "value": "⚠️ a union that could apply different morphs to the same data is a ParseError ([docs](https://arktype.io/docs/expressions/union-morphs))"
-                    }
-                ]
-            ],
-            "example": "// Type<string | { box: string }>\nconst t = type(\"string\").or({ box: \"string\" })"
         },
         {
             "group": "Type",
@@ -532,7 +480,7 @@ export const apiDocsByGroup: ApiDocsByGroup = {
                 [
                     {
                         "kind": "noteStart",
-                        "value": "✅ go-to fallback for validation not composable via built-in types and operators"
+                        "value": "✅ go-to fallback for validation not composable via builtin types and operators"
                     }
                 ],
                 [
@@ -558,6 +506,90 @@ export const apiDocsByGroup: ApiDocsByGroup = {
                 ]
             ],
             "example": "const palindrome = type(\"string\").narrow(s => s === [...s].reverse().join(\"\"))\n\nconst palindromicEmail = type(\"string.date.parse\").narrow((date, ctx) =>\n\t\tdate.getFullYear() === 2025 || ctx.mustBe(\"the current year\")\n)\n// Type<`${string}.tsx`>\nconst withPredicate = type(\"string\").narrow((s): s is `${string}.tsx` => /\\.tsx?$/.test(s))"
+        },
+        {
+            "group": "Type",
+            "name": "pipe",
+            "summary": [
+                {
+                    "kind": "text",
+                    "value": "pipe output through arbitrary transformations or other Types"
+                }
+            ],
+            "notes": [],
+            "example": "const user = type({ name: \"string\" })\n\n// parse a string and validate that the result as a user\nconst parseUser = type(\"string\").pipe(s => JSON.parse(s), user)"
+        },
+        {
+            "group": "Type",
+            "name": "to",
+            "summary": [
+                {
+                    "kind": "text",
+                    "value": "parse a definition as an output validator"
+                }
+            ],
+            "notes": [
+                [],
+                [
+                    {
+                        "kind": "noteStart",
+                        "value": "🔗 `to({ name: \"string\" })` is equivalent to `.pipe(type({ name: \"string\" }))`"
+                    }
+                ]
+            ],
+            "example": "// parse a string and validate that the result as a user\nconst parseUser = type(\"string\").pipe(s => JSON.parse(s)).to({ name: \"string\" })"
+        },
+        {
+            "group": "Type",
+            "name": "as",
+            "summary": [
+                {
+                    "kind": "text",
+                    "value": "cast the way this is inferred"
+                }
+            ],
+            "notes": [
+                [],
+                [
+                    {
+                        "kind": "noteStart",
+                        "value": "🥸 inference-only function that does nothing runtime"
+                    }
+                ]
+            ],
+            "example": "// Type<`LEEEEEEEE${string}ROY`>\nconst leeroy = type(/^LE{8,}ROY$/).as<`LEEEEEEEE${string}ROY`>()"
+        },
+        {
+            "group": "Type",
+            "name": "and",
+            "summary": [
+                {
+                    "kind": "text",
+                    "value": "intersect the parsed Type, throwing if the result is unsatisfiable"
+                }
+            ],
+            "notes": [],
+            "example": "// Type<{ foo: number; bar: string }>\nconst t = type({ foo: \"number\" }).and({ bar: \"string\" })\n// ParseError: Intersection at foo of number and string results in an unsatisfiable type\nconst bad = type({ foo: \"number\" }).and({ foo: \"string\" })"
+        },
+        {
+            "group": "Type",
+            "name": "or",
+            "summary": [
+                {
+                    "kind": "text",
+                    "value": "union with the parsed Type"
+                }
+            ],
+            "notes": [
+                [],
+                [
+                    {
+                        "kind": "noteStart",
+                        "value": "⚠️ a union that could apply different morphs to the same data is a ParseError ([docs](https://arktype.io/docs/expressions/union-morphs))"
+                    }
+                ]
+            ],
+            "example": "// Type<string | { box: string }>\nconst t = type(\"string\").or({ box: \"string\" })"
         },
         {
             "group": "Type",
